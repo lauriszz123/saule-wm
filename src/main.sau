@@ -1,0 +1,9 @@
+--[[
+saule-wm: the Saule Linux display server and window manager.
+]]
+
+class Main
+  static fn main()
+    println("saule-wm: nothing here yet")
+  end
+end
