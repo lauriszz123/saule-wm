@@ -49,6 +49,9 @@ export class GraphicsCard
   static local output: string = ""
   static local answer: string = ""
 
+  -- The names last written to the log.
+  static local logged: string = ""
+
   -- Ask the system that is slow to answer, if it is one of those.
   static fn start() -> nil
     if GraphicsCard.query != nil then
@@ -70,7 +73,11 @@ export class GraphicsCard
     if names == "" then
       names = GraphicsCard.fromKernel()
     end
-    GraphicsCard.log.debug("graphics", {name: names})
+    -- Asked every second while About is open: said when it changes.
+    if names != GraphicsCard.logged then
+      GraphicsCard.logged = names
+      GraphicsCard.log.debug("graphics", {name: names})
+    end
     return names
   end
 
