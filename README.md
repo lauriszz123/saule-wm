@@ -21,12 +21,49 @@ On the desktop, nested in an ordinary window:
 saule run .
 ```
 
-On Saule Linux, as the session:
+With the apps of Saule Linux (Settings, About This System) in the launcher
+and the system menu, as `make` in saule-linux builds them:
 
 ```sh
-cd ../saule-linux
-make APP=../saule-wm APPS="examples/shine-demo" run-netbook
+(cd ../saule-linux && make apps)
+SAULE_APPS=../saule-linux/build/apps saule run .
 ```
+
+An app given after the `.` starts at once: `saule run . path/to/app`.
+
+The window manager's shortcuts are held with its key, "Mod". On Saule Linux
+that is Super, used as a Mac uses Command (Super+Space opens the launcher,
+Ctrl+Super+Q locks, Alt+Super+Esc force quits). Nested in another desktop,
+which keeps Super for itself, it is:
+
+| Desktop | Mod | Launcher | Lock | Force quit |
+|---|---|---|---|---|
+| Windows (and WSL) | Ctrl+Alt | Ctrl+Alt+D | Ctrl+Alt+L | Ctrl+Alt+Esc |
+| macOS | Ctrl+Option | Ctrl+Option+D | Ctrl+Option+L | Ctrl+Option+Esc |
+| Linux (GNOME, KDE) | Alt | Alt+D | Alt+L | Alt+Shift+K |
+
+Quitting the window manager is Ctrl+Alt+Q on Saule Linux, Mod+Shift+E nested.
+The rest are the same everywhere: Mod+arrows, Mod+Shift+arrows, Mod+1…4,
+Mod+Shift+1…4, Mod+H/V, Mod+R, Mod+Shift+Space (float), Mod+Shift+Q (close).
+The system menu shows the keys in use. `SAULE_WM_KEY=super`, `alt` or
+`ctrl+alt` overrides the guess, and `SAULE_LOG=wm.keys=trace` logs every key
+the window manager receives, for finding out what a desktop swallows.
+
+## Logging
+
+The window manager logs through [saule-log](https://github.com/lauriszz123/saule-log),
+one line per event on standard error, and passes on what the apps it started
+write, so one terminal shows everything:
+
+```
+16:51:59.173 INFO  wm.session  window opened  floating=true id=1 size=300x340 title="About This System"
+16:51:59.840 DEBUG settings  connected  service=saule.wm
+```
+
+`SAULE_LOG` chooses how much: `SAULE_LOG=debug`, or `SAULE_LOG=info,wm.session=debug`
+for one part (`wm`, `wm.session`, `wm.launcher`, `wm.settings`, and the apps'
+own names). `SAULE_LOG_FILE=/tmp/wm.log` keeps a copy. On Saule Linux, pass
+them on the kernel command line: `make APPEND="saule.env.SAULE_LOG=debug" run-netbook`.
 
 ## Plan
 
