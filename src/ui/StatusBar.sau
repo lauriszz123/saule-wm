@@ -1,6 +1,7 @@
 -- The bar along the top of the screen: always there, whatever the layout.
--- Like a Mac's menu bar it has no background of its own: the wallpaper
--- shows through, darkened along the top edge (see `Wallpaper`).
+-- Frosted glass, as a Mac's menu bar is: the wallpaper behind it blurred
+-- under a dark tint, both full along the top edge and melting away toward
+-- the bar's bottom, so the bar has no edge of its own.
 --
 --   ☀  [1] 2  3   Saule Maker                     Tue 24 Nov  14:05
 --
@@ -45,7 +46,13 @@ export class StatusBar extends View
     end
 
     local inset = EdgeInsets.symmetric(horizontal: Palette.padding)
-    return row.padding(insets: inset).frame(height: Palette.barHeight)
+    local glass = Backdrop(
+      child: row.padding(insets: inset),
+      blur: Palette.barBlur,
+      tint: Palette.barTint,
+      fade: Palette.barHeight * Palette.barFade
+    )
+    return glass.frame(height: Palette.barHeight)
   end
 
   -- The sun, lit while its menu is open, as a Mac lights its apple.

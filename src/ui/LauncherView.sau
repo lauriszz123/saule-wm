@@ -78,8 +78,14 @@ export class LauncherView extends View
     end
 
     local fill = StackAlignment.Fill
-    local card = VStack(alignment: fill, children: column).background(
-      Palette.launcher,
+    local glass = Backdrop(
+      child: VStack(alignment: fill, children: column),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: Palette.launcherRadius
+    )
+    local card = glass.background(
+      nil,
       Palette.launcherRadius,
       border: Palette.launcherOutline
     )
@@ -155,8 +161,11 @@ export class LauncherView extends View
       Table.insert(rows, row)
     end
 
+    -- Inset as the hairline above is, so the picked row's ends line up
+    -- with the line's.
     local fill = StackAlignment.Fill
     local list = VStack(alignment: fill, spacing: 2.0, children: rows)
-    return list.padding(insets: EdgeInsets.all(8.0))
+    local inset = EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0)
+    return list.padding(insets: inset)
   end
 end

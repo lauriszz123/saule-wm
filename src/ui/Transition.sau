@@ -6,7 +6,12 @@
 --
 -- The motion is painted, not built: the content is drawn into an image
 -- once as the motion starts, and each frame of it draws that image faded
--- and scaled. Nothing is rebuilt or redrawn, which on a netbook is the
+-- and scaled. Drawn premultiplied: what is translucent in the content
+-- (a tinted glass panel) was weighed by its alpha already as it went into
+-- the empty image, and weighing it again would show it darker, nearly
+-- black, until the motion ends. Frosted panels in it (uikit's `Backdrop`) have nothing
+-- behind them in the image: where they are is kept as it is drawn, and
+-- each frame blurs the screen there first, faded and scaled the same. Nothing is rebuilt or redrawn, which on a netbook is the
 -- difference between a motion and a jump; once it has fully arrived the
 -- content is drawn straight onto the screen again.
 --
@@ -17,6 +22,11 @@
 --     startScale: 0.96,      -- grows into place
 --     anchorY: 146.0         -- about the search bar, not the middle
 --   )
+--
+-- It can come out of a blur as well (`blur`, as the lock screen does):
+-- blurred that far at the start of coming, sharpening as it fades in, and
+-- going, blurring again as it fades out. The image is copied and the copy
+-- blurred each frame of the motion, on the GPU where Shine draws on one.
 
 import shine
 from uikit import *
@@ -45,12 +55,17 @@ export class Transition extends View
   -- always its middle.
   anchorY: float?
 
+  -- How blurred it is at the start of coming and the end of going, in
+  -- pixels (see `Graphics.blur`); 0 for not at all.
+  blur: float
+
   fn init(
     shown: fn() -> boolean,
     content: fn() -> View,
     duration: float,
     startScale: float,
     anchorY: float? = nil,
+    blur: float = 0.0,
     key: string? = nil
   )
     self.super(key)
@@ -58,6 +73,7 @@ export class Transition extends View
     self.content = content
     self.duration = duration
     self.startScale = startScale
+    self.blur = blur
     self.anchorY = anchorY
   end
 
@@ -115,7 +131,7 @@ export class Transition extends View
     local h = el.size.height
     local pw = (w * density) as integer
     local ph = (h * density) as integer
-    local image = Transition.canvasFor(el, pw, ph)
+    local image = Transition.canvasFor(el, pw, ph, "image")
 
     -- The content into the image, at the image's origin: once a motion.
     if el.data.scratch.drawn != true then
@@ -128,20 +144,40 @@ export class Transition extends View
       Graphics.clear(0.0, 0.0, 0.0, 0.0)
       Graphics.scale(density, density)
       Graphics.translate(-x, -y)
+      Backdrop.record()
       el.paintChildren(x, y)
+      el.data.scratch.backdrops = Backdrop.recorded()
       Graphics.pop()
       Graphics.setCanvas()
       Graphics.setScissor(sx, sy, sw, sh)
+    end
+
+    -- Blurred as far as the motion is from its end: a copy of the image,
+    -- so the content is drawn only once a motion.
+    if self.blur > 0.0 then
+      image = Transition.blurred(
+        el,
+        image,
+        pw,
+        ph,
+        self.blur * density * (1.0 - t)
+      )
     end
 
     -- A motion with no change of size is a fade: the image as it is, at
     -- the screen's pixels, which is a plain copy and the fastest thing
     -- Shine draws. Scaling has to sample every pixel between its
     -- neighbours, which a netbook can't do across the screen every frame.
-    Graphics.setColor(1.0, 1.0, 1.0, t)
+    local backdrops = el.data.scratch.backdrops as table<BackdropArea>? ?? {}
     if self.startScale == 1.0 and density == 1.0 then
+      for area in backdrops do
+        area.draw(t)
+      end
+      Graphics.setBlendMode("premultiplied")
+      Graphics.setColor(1.0, 1.0, 1.0, t)
       Graphics.draw(image, x, y)
       Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+      Graphics.setBlendMode("alpha")
       return
     end
 
@@ -153,8 +189,14 @@ export class Transition extends View
     local cy = self.anchorY ?? h / 2.0
     local ox = cx * density
     local oy = cy * density
+    for area in backdrops do
+      area.draw(t, x + cx, y + cy, scale * density)
+    end
+    Graphics.setBlendMode("premultiplied")
+    Graphics.setColor(1.0, 1.0, 1.0, t)
     Graphics.draw(image, x + cx, y + cy, 0.0, scale, scale, ox, oy)
     Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+    Graphics.setBlendMode("alpha")
   end
 
   -- How far it has come, 0 to 1, heading in or out as `shown` says.
@@ -162,18 +204,48 @@ export class Transition extends View
     return motionOn(scratch, "shown", self.shown(), self.duration)
   end
 
-  -- One image for the motion, `w` by `h` screen pixels, kept while the
-  -- screen keeps its size.
-  static fn canvasFor(el: Element, w: integer, h: integer) -> Canvas
+  -- An image for the motion called `name`, `w` by `h` screen pixels,
+  -- kept while the screen keeps its size.
+  static fn canvasFor(el: Element, w: integer, h: integer, name: string) -> Canvas
     local scratch = el.data.scratch
-    local image = scratch.image as Canvas?
-    local same = w == (scratch.w as integer?) and h == (scratch.h as integer?)
-    if image == nil or not same then
+    local image = scratch[name] as Canvas?
+    local wide = scratch[name .. "W"] as integer?
+    local high = scratch[name .. "H"] as integer?
+    if image == nil or w != wide or h != high then
       image = Graphics.newCanvas(w, h)
-      scratch.image = image
-      scratch.w = w
-      scratch.h = h
+      scratch[name] = image
+      scratch[name .. "W"] = w
+      scratch[name .. "H"] = h
     end
     return image!
+  end
+
+  -- `image` blurred `radius` screen pixels: a copy, the image itself kept
+  -- as it is for the frames after.
+  static fn blurred(
+    el: Element,
+    image: Canvas,
+    w: integer,
+    h: integer,
+    radius: float
+  ) -> Canvas
+    if radius < 0.5 then
+      return image
+    end
+    local copy = Transition.canvasFor(el, w, h, "blurred")
+    local sx, sy, sw, sh = Graphics.getScissor()
+    Graphics.setCanvas(copy)
+    Graphics.push("all")
+    Graphics.origin()
+    Graphics.setScissor()
+    Graphics.setBlendMode("replace")
+    Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+    Graphics.draw(image, 0.0, 0.0)
+    Graphics.setBlendMode("alpha")
+    Graphics.blur(0.0, 0.0, w as float, h as float, radius)
+    Graphics.pop()
+    Graphics.setCanvas()
+    Graphics.setScissor(sx, sy, sw, sh)
+    return copy
   end
 end

@@ -1,7 +1,9 @@
 -- "Are you sure?" before the session ends, as a Mac asks before it
--- restarts or shuts down: a small card in the middle of the screen, the
--- sun, the question, and Cancel beside the action. Enter does it, Escape
--- or Cancel doesn't (see `Desktop.overlayKey`).
+-- restarts, shuts down or logs out: the screen behind blurred a little and
+-- dimmed, and in the middle a card of frosted glass with the sun, what is
+-- about to happen, and two buttons side by side across its width —
+-- Cancel, and the action in the accent. Enter does it, Escape or Cancel
+-- doesn't (see `Desktop.overlayKey`).
 
 from uikit import *
 from wm import Session
@@ -11,6 +13,10 @@ from SunLogo import SunLogo
 export class ConfirmDialog extends View
   session: Session
 
+  -- What was asked last: as the card fades away the question is already
+  -- answered, and it should still say what it asked.
+  static local last: string = "shutDown"
+
   fn init(session: Session, key: string? = nil)
     self.super(key)
     self.session = session
@@ -18,15 +24,20 @@ export class ConfirmDialog extends View
 
   fn body(context: BuildContext) -> View
     local session = self.session
+    local title = "Shut Down"
     local question = "Are you sure you want to shut down your computer now?"
-    local action = "Shut Down"
-    match session.confirming
+    local asked = session.confirming
+    if asked == "" then
+      asked = ConfirmDialog.last
+    end
+    ConfirmDialog.last = asked
+    match asked
       case "restart" then
+        title = "Restart"
         question = "Are you sure you want to restart your computer now?"
-        action = "Restart"
       case "logOut" then
+        title = "Log Out"
         question = "Are you sure you want to quit all apps and log out now?"
-        action = "Log Out"
       case _ then nil
     end
 
@@ -37,41 +48,72 @@ export class ConfirmDialog extends View
       session.confirmed()
     end
 
-    local buttons = HStack(spacing: 8.0) do
-      ConfirmDialog.button("Cancel", Palette.workspace, cancel)
-      ConfirmDialog.button(action, Palette.accent, go)
-    end
+    -- The two buttons share the card's width equally, as a Mac's do.
+    local buttons: table<View> = {
+      ConfirmDialog.button("Cancel", Palette.confirmCancel, cancel).expanded(),
+      ConfirmDialog.button(title, Palette.accent, go).expanded(),
+    }
+    local fill = StackAlignment.Fill
+    local row = HStack(alignment: fill, spacing: 10.0, children: buttons)
 
-    local text = Text(question).font(13.0).foregroundStyle(Palette.text)
-    local centred = text.multilineTextAlignment(TextAlign.Center)
+    local heading = Text(title).font(15.0).foregroundStyle(Palette.text)
+    local text = Text(question).font(12.0).foregroundStyle(Palette.dimText)
+    local said = text.multilineTextAlignment(TextAlign.Center).lineLimit(3)
+    local logo = SunLogo(Palette.text).frame(width: 46.0, height: 46.0)
+    local items: table<View> = {
+      logo.centered(),
+      Spacer().frame(height: 4.0),
+      heading.centered(),
+      said.centered(),
+      Spacer().frame(height: 8.0),
+      row.frame(height: Palette.confirmButton),
+    }
     -- As tall as what is in it: a card, not a column down the screen.
     local fit = StackSize.Fit
-    local center = StackAlignment.Center
-    local card = VStack(alignment: center, sizing: fit, spacing: 12.0) do
-      SunLogo(Palette.text).frame(width: 44.0, height: 44.0)
-      centred.lineLimit(3)
-      show(buttons)
-    end
-    local inset = EdgeInsets.all(18.0)
-    local shown = card.padding(insets: inset).background(
-      Palette.launcher,
-      12.0,
+    local column = VStack(
+      alignment: fill,
+      sizing: fit,
+      spacing: 6.0,
+      children: items
+    )
+    local inset = EdgeInsets.only(
+      left: 18.0,
+      top: 22.0,
+      right: 18.0,
+      bottom: 18.0
+    )
+    local glass = Backdrop(
+      child: column.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: Palette.confirmRadius
+    )
+    local card = glass.background(
+      nil,
+      Palette.confirmRadius,
       border: Palette.launcherOutline
     )
 
-    -- The rest of the screen is dimmed and takes every press, so nothing
-    -- behind is clicked by accident.
+    -- The rest of the screen is blurred a little and dimmed, and takes
+    -- every press, so nothing behind is clicked by accident.
     local nothing = fn()
     end
-    local held = GestureArea(child: shown.frame(width: 280.0), onTap: nothing)
-    local dim = Color(0.0, 0.0, 0.0, 0.35)
-    return GestureArea(child: held.centered().background(dim), onTap: nothing)
+    local held = GestureArea(
+      child: card.frame(width: Palette.confirmWidth),
+      onTap: nothing
+    )
+    local screen = Backdrop(
+      child: held.centered(),
+      blur: Palette.confirmScreenBlur,
+      tint: Palette.confirmScreenTint
+    )
+    return GestureArea(child: screen, onTap: nothing)
   end
 
+  -- One of the two buttons: its title in the middle of a rounded pill.
   static fn button(title: string, fill: Color, pressed: fn() -> nil) -> View
     local label = Text(title).font(13.0).foregroundStyle(Palette.text)
-    local inset = EdgeInsets.symmetric(horizontal: 14.0, vertical: 5.0)
-    local shown = label.padding(insets: inset).background(fill, 6.0)
+    local shown = label.centered().background(fill, 7.0)
     return GestureArea(child: shown, onTap: pressed)
   end
 end

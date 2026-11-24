@@ -1,5 +1,6 @@
--- The locked screen: the wallpaper, the time large in the middle, and the
--- date under it, over everything, as a Mac's lock screen. A click or
+-- The locked screen: the wallpaper, darkened toward the edges, the time
+-- large in the middle, and the date under it, over everything, as a Mac's
+-- lock screen. A click or
 -- Enter unlocks it: there are no passwords on Saule Linux yet, so this
 -- keeps a glance or a stray key out, not a person.
 
@@ -47,6 +48,7 @@ export class LockScreen extends View
     local unlock = fn()
       session.unlock()
     end
-    return Wallpaper(child: GestureArea(child: middle, onTap: unlock))
+    local tap = GestureArea(child: middle, onTap: unlock)
+    return Wallpaper(child: tap, vignette: true)
   end
 end
