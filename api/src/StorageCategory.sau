@@ -1,0 +1,9 @@
+-- What some of a volume's used space is taken by, as a Mac's Storage pane
+-- shows it: "Apps", "Home", "Settings", "System"… `volume` is the mount
+-- point of the volume it is on.
+
+export class StorageCategory
+  name: string = ""
+  volume: string = ""
+  bytes: integer = 0
+end

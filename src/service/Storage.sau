@@ -1,0 +1,592 @@
+-- Everything about storage, for Settings' Storage pane and the About
+-- window: the disks there are, how full each volume is, and what the used
+-- space of the main one holds — as a Mac's Storage pane shows it.
+--
+-- The volumes come from `df` (Saule Linux's BusyBox has one; so does every
+-- Linux and macOS a nested window manager runs on), and what each drive is
+-- from `/sys/block` on Linux. On Saule Linux the system itself lives in
+-- memory, so that is shown as a volume too; the data disk, where settings
+-- are kept, is `$SAULE_DATA`. Nested, the main volume is the one the home
+-- directory is on.
+--
+-- Settings and About ask again every second or so while they show this,
+-- and each answer costs the window manager, which draws the screen, the
+-- time it takes: `df` is another program to start, and counting a folder
+-- reads every file in it. So what changes is found again only so often
+-- (see the times below), and what can't change while the system runs — a
+-- drive's model, the apps in the image — once.
+
+from "wmapi" import StorageCategory, StorageReport, StorageVolume
+from wm import Keymap
+
+export class Storage
+  -- What a folder may hold before counting it stops: a home of a hundred
+  -- thousand files would hold the window manager up for seconds.
+  static countLimit: integer = 20000
+
+  -- How long each thing found stays good, in milliseconds: how full the
+  -- volumes are, what the home holds, what the system in memory holds;
+  -- and `forever`, for what is counted once.
+  static volumesFor: integer = 2000
+  static homeFor: integer = 10000
+  static systemFor: integer = 30000
+  static forever: integer = -1
+
+  -- The volumes as last found, and when (0: never).
+  static local lastVolumes: table<StorageVolume> = {}
+  static local volumesAt: integer = 0
+
+  -- What each drive is, by device and mount point: found once.
+  static local drives: table<string, StorageVolume> = {}
+
+  -- What each folder counted holds, and when it was counted.
+  static local counted: table<string, integer> = {}
+  static local countedAt: table<string, integer> = {}
+
+  -- Everything, found now.
+  static fn report() -> StorageReport
+    local report = StorageReport()
+    local volumes = Storage.volumes()
+    local data = Os.getenv("SAULE_DATA") ?? ""
+    local home = Os.getenv("HOME") ?? ""
+
+    -- The main volume: the data disk on Saule Linux, else where the home
+    -- directory is.
+    local main = ""
+    if data != "" then
+      main = data
+    else
+      main = Storage.mountOf(volumes, home)
+    end
+    for volume in volumes do
+      volume.main = volume.mount == main
+    end
+
+    local ordered: table<StorageVolume> = {}
+    for volume in volumes do
+      if volume.main then
+        Table.insert(ordered, volume)
+      end
+    end
+    if Keymap.host == "saule" then
+      Table.insert(ordered, Storage.memory())
+    end
+    for volume in volumes do
+      if not volume.main then
+        Table.insert(ordered, volume)
+      end
+    end
+    report.volumes = ordered
+
+    report.persistent = data != "" or Keymap.host != "saule"
+    report.keptIn = Storage.settingsFolder()
+    report.categories = Storage.categories(ordered, main, home)
+    return report
+  end
+
+  -- The main disk in a line, for About: "250.06 GB hard disk · 249.85 GB
+  -- available".
+  static fn summary() -> string
+    local volumes = Storage.volumes()
+    local data = Os.getenv("SAULE_DATA") ?? ""
+    local main = data
+    if main == "" then
+      main = Storage.mountOf(volumes, Os.getenv("HOME") ?? "")
+    end
+    for volume in volumes do
+      if volume.mount == main then
+        local size = volume.driveBytes
+        if size <= 0 then
+          size = volume.total
+        end
+        local said = StorageReport.bytes(size) .. " " .. StorageReport.kindName(
+          volume.kind
+        )
+        return said .. " · " .. StorageReport.bytes(volume.free) .. " available"
+      end
+    end
+    if Keymap.host == "saule" then
+      return "None: the system runs from memory"
+    end
+    return ""
+  end
+
+  -- Every volume that is a real drive, as found in the last `volumesFor`.
+  static fn volumes() -> table<StorageVolume>
+    local now = Os.timeMillis()
+    if Storage.volumesAt == 0 or now - Storage.volumesAt >= Storage.volumesFor then
+      Storage.lastVolumes = Storage.findVolumes()
+      Storage.volumesAt = now
+    end
+    return Storage.lastVolumes
+  end
+
+  -- Every volume `df` lists that is a real drive: one line each, a drive
+  -- mounted in several places once, where it is mounted shortest.
+  static fn findVolumes() -> table<StorageVolume>
+    local found: table<StorageVolume> = {}
+    if Os.platform() == OsPlatform.Windows then
+      return found
+    end
+    local code, out, _ = Os.capture("df -Pk 2>/dev/null")
+    if code != 0 and out == "" then
+      return found
+    end
+    local seen: table<string, StorageVolume> = {}
+    local lines = String.split(out, "\n")
+    for i = 2, #lines do
+      local volume = Storage.parseLine(lines[i])
+      if volume != nil and Storage.isDrive(volume!) then
+        local before = seen[volume!.device]
+        if before == nil then
+          seen[volume!.device] = volume!
+          Table.insert(found, volume!)
+        elseif #volume!.mount < #before!.mount then
+          before!.mount = volume!.mount
+        end
+      end
+    end
+    -- An image mounted only to be read, full by its nature (a snap, WSL's
+    -- kernel headers), is no place to store anything: left out.
+    local shown: table<StorageVolume> = {}
+    for volume in found do
+      if not (volume.free == 0 and Storage.readOnly(volume.mount)) then
+        Storage.describeOnce(volume)
+        Table.insert(shown, volume)
+      end
+    end
+    return shown
+  end
+
+  -- What the drive of `volume` is: looked up the first time it is seen,
+  -- taken from what was found then after that.
+  static fn describeOnce(volume: StorageVolume) -> nil
+    local key = volume.device .. " " .. volume.mount
+    local known = Storage.drives[key]
+    if known == nil then
+      Storage.describe(volume)
+      Storage.drives[key] = volume
+      return
+    end
+    volume.name = known!.name
+    volume.model = known!.model
+    volume.kind = known!.kind
+    volume.serial = known!.serial
+    volume.rpm = known!.rpm
+    volume.connection = known!.connection
+    volume.fileSystem = known!.fileSystem
+    volume.driveBytes = known!.driveBytes
+  end
+
+  -- Whether what is mounted at `mount` can only be read (`/proc/mounts`).
+  static fn readOnly(mount: string) -> boolean
+    local file = Io.open("/proc/mounts", IoMode.Read)
+    if file == nil then
+      return false
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    for line in String.split(text, "\n") do
+      local parts = String.split(line, " ")
+      if #parts >= 4 and parts[2] == mount then
+        return Table.contains(String.split(parts[4], ","), "ro")
+      end
+    end
+    return false
+  end
+
+  -- One line of `df -Pk`: device, size, used and free in kilobytes, the
+  -- percentage, and the mount point, which may have spaces in it.
+  static fn parseLine(line: string) -> StorageVolume?
+    local parts: table<string> = {}
+    for part in String.split(String.trim(line), " ") do
+      if part != "" then
+        Table.insert(parts, part)
+      end
+    end
+    if #parts < 6 then
+      return nil
+    end
+    local volume = StorageVolume()
+    volume.device = parts[1]
+    volume.total = ((parts[2] as integer) ?? 0) * 1024
+    volume.used = ((parts[3] as integer) ?? 0) * 1024
+    volume.free = ((parts[4] as integer) ?? 0) * 1024
+    local mount = parts[6]
+    for i = 7, #parts do
+      mount = mount .. " " .. parts[i]
+    end
+    volume.mount = mount
+    return volume
+  end
+
+  -- A drive or a partition of one, not a file system in memory or one the
+  -- system makes up (`/proc`, `/dev`, WSL's driver folders…).
+  static fn isDrive(volume: StorageVolume) -> boolean
+    if volume.total <= 0 then
+      return false
+    end
+    local device = volume.device
+    -- Windows' drives seen from WSL: `C:\` on /mnt/c.
+    if String.contains(device, ":\\") then
+      return true
+    end
+    if not String.starts(device, "/dev/") then
+      return false
+    end
+    -- macOS lists its system snapshots and helper volumes too.
+    local mount = volume.mount
+    if String.starts(mount, "/System/Volumes/") and mount != "/System/Volumes/Data" then
+      return false
+    end
+    return not String.starts(device, "/dev/loop")
+  end
+
+  -- What the drive is, from `/sys/block` (Linux): its model, its kind and
+  -- size, its file system and the volume's name.
+  static fn describe(volume: StorageVolume) -> nil
+    local device = volume.device
+    volume.name = Storage.volumeName(volume)
+    volume.fileSystem = Storage.fileSystem(volume.mount)
+    if String.contains(device, ":\\") then
+      volume.kind = "disk"
+      volume.model = "Windows drive"
+      return
+    end
+    local disk = Storage.diskOf(String.sub(device, 6))
+    local sys = "/sys/block/" .. disk
+    if not Os.exists(sys) then
+      return
+    end
+    local model = Storage.firstLine(sys .. "/device/model")
+    Storage.identify(volume, sys)
+    if volume.model != "" then
+      model = volume.model
+    end
+    local vendor = Storage.firstLine(sys .. "/device/vendor")
+    if vendor != "" and vendor != "ATA" and not String.contains(model, vendor) then
+      model = vendor .. " " .. model
+    end
+    volume.model = model
+    local sectors = (Storage.firstLine(sys .. "/size") as integer) ?? 0
+    volume.driveBytes = sectors * 512
+    local rotational = Storage.firstLine(sys .. "/queue/rotational") == "1"
+    local removable = Storage.firstLine(sys .. "/removable") == "1"
+    local _, path, _ = Os.capture("readlink -f " .. sys .. " 2>/dev/null")
+    Storage.link(volume, path)
+    if volume.rpm > 1 then
+      rotational = true
+    end
+    if removable or String.contains(path, "/usb") then
+      volume.kind = "usb"
+    elseif rotational then
+      volume.kind = "hdd"
+    else
+      volume.kind = "ssd"
+    end
+  end
+
+  -- What an ATA disk says of itself, from its IDENTIFY DEVICE data (the
+  -- kernel passes it on in VPD page 89h, from byte 60): the whole model
+  -- name, which `device/model` cuts to 16 letters, the serial number and
+  -- the speed it spins at. Each ATA text is in two-letter words, each word's
+  -- letters swapped.
+  static fn identify(volume: StorageVolume, sys: string) -> nil
+    local file = Io.open(sys .. "/device/vpd_pg89", IoMode.Read)
+    if file == nil then
+      return
+    end
+    local data = file!.readBytes() ?? Bytes.empty()
+    file!.close()
+    if Bytes.len(data) < 60 + 512 then
+      return
+    end
+    local at = 60
+    volume.model = Storage.ataText(data, at + 54, 40)
+    volume.serial = Storage.ataText(data, at + 20, 20)
+    local word = Storage.ataWord(data, at + 434)
+    -- 1 is "not rotating" (an SSD); 0401h–FFFEh the speed itself.
+    if word >= 0x0401 and word <= 0xFFFE then
+      volume.rpm = word
+    end
+  end
+
+  static fn ataWord(data: bytes, offset: integer) -> integer
+    local low = (Bytes.byte(data, offset + 1) ?? 0) as integer
+    local high = (Bytes.byte(data, offset + 2) ?? 0) as integer
+    return low + high * 256
+  end
+
+  static fn ataText(data: bytes, offset: integer, length: integer) -> string
+    local letters: table<string> = {}
+    local i = 0
+    while i < length do
+      local first = (Bytes.byte(data, offset + i + 2) ?? 32) as integer
+      local second = (Bytes.byte(data, offset + i + 1) ?? 32) as integer
+      for code in {first, second} do
+        if code >= 32 and code < 127 then
+          Table.insert(letters, String.char(code))
+        end
+      end
+      i += 2
+    end
+    return String.trim(String.join("", letters))
+  end
+
+  -- How a SATA disk is connected, from its link: "SATA 1.5 Gb/s".
+  static fn link(volume: StorageVolume, path: string) -> nil
+    for part in String.split(String.trim(path), "/") do
+      if String.starts(part, "ata") and (String.sub(part, 4) as integer?) != nil then
+        local speed = Storage.firstLine(
+          "/sys/class/ata_link/link" .. String.sub(part, 4) .. "/sata_spd"
+        )
+        if speed != "" and speed != "<unknown>" then
+          volume.connection = "SATA " .. String.replace(speed, "Gbps", "Gb/s")
+        end
+        return
+      end
+    end
+    if String.contains(path, "/usb") then
+      volume.connection = "USB"
+    elseif String.contains(path, "/nvme") then
+      volume.connection = "NVMe"
+    end
+  end
+
+  -- The disk a partition is on: sda1 → sda, nvme0n1p2 → nvme0n1,
+  -- mmcblk0p1 → mmcblk0.
+  static fn diskOf(name: string) -> string
+    if Os.exists("/sys/block/" .. name) then
+      return name
+    end
+    local cut = #name
+    while cut > 0 and String.contains("0123456789", String.sub(name, cut, cut)) do
+      cut -= 1
+    end
+    local base = String.sub(name, 1, cut)
+    if String.ends(base, "p") and Os.exists(
+      "/sys/block/" .. String.sub(base, 1, #base - 1)
+    ) then
+      return String.sub(base, 1, #base - 1)
+    end
+    return base
+  end
+
+  -- What to call a volume: Saule's data disk, the system's own, the
+  -- drive letter of a Windows drive, else its mount point's last part.
+  static fn volumeName(volume: StorageVolume) -> string
+    local mount = volume.mount
+    if mount == (Os.getenv("SAULE_DATA") ?? "") then
+      return "Saule Data"
+    end
+    if String.contains(volume.device, ":\\") then
+      return String.sub(volume.device, 1, 2)
+    end
+    if mount == "/" or mount == "/System/Volumes/Data" then
+      return "System"
+    end
+    local parts = String.split(mount, "/")
+    return parts[#parts]
+  end
+
+  -- The file system mounted at `mount`, from `/proc/mounts` (Linux).
+  static fn fileSystem(mount: string) -> string
+    local file = Io.open("/proc/mounts", IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    for line in String.split(text, "\n") do
+      local parts = String.split(line, " ")
+      if #parts >= 3 and parts[2] == mount then
+        return parts[3]
+      end
+    end
+    return ""
+  end
+
+  -- The memory Saule Linux runs from, as a volume: its room is the
+  -- machine's memory, what the system's files take is what is used.
+  static fn memory() -> StorageVolume
+    local volume = StorageVolume()
+    volume.name = "Saule Linux"
+    volume.model = "Runs from memory"
+    volume.kind = "memory"
+    volume.mount = "/"
+    volume.fileSystem = "rootfs"
+    volume.total = Storage.memoryBytes()
+    volume.driveBytes = volume.total
+    volume.used = Storage.systemBytes()
+    volume.free = Math.max(volume.total - volume.used, 0)
+    return volume
+  end
+
+  -- What the used space holds: on the main volume, Saule's settings and
+  -- (on Saule Linux) the home; in memory, the apps, the wallpapers and the
+  -- rest of the system.
+  static fn categories(
+    volumes: table<StorageVolume>,
+    main: string,
+    home: string
+  ) -> table<StorageCategory>
+    local out: table<StorageCategory> = {}
+    local settings = Storage.sized(Storage.settingsFolder(), Storage.homeFor)
+    if main != "" then
+      Table.insert(out, Storage.category("Settings", main, settings))
+      if Keymap.host == "saule" and home != "" then
+        local files = Math.max(
+          Storage.sized(home, Storage.homeFor) - settings,
+          0
+        )
+        Table.insert(out, Storage.category("Home", main, files))
+      end
+    end
+    if Keymap.host == "saule" then
+      local apps = Storage.sized("/bin/apps", Storage.forever)
+      local wallpapers = Storage.sized(
+        "/usr/share/saule/wallpapers",
+        Storage.forever
+      )
+      Table.insert(out, Storage.category("Apps", "/", apps))
+      Table.insert(out, Storage.category("Wallpapers", "/", wallpapers))
+      local rest = Math.max(Storage.systemBytes() - apps - wallpapers, 0)
+      Table.insert(out, Storage.category("System", "/", rest))
+    end
+    return out
+  end
+
+  static fn category(name: string, volume: string, bytes: integer) -> StorageCategory
+    local category = StorageCategory()
+    category.name = name
+    category.volume = volume
+    category.bytes = bytes
+    return category
+  end
+
+  -- Where Saule's settings are kept: `~/.config/saule`, or Windows'
+  -- `%APPDATA%\saule`.
+  static fn settingsFolder() -> string
+    local appData = Os.getenv("APPDATA")
+    if Os.platform() == OsPlatform.Windows and appData != nil then
+      return appData! .. "\\saule"
+    end
+    local config = Os.getenv("XDG_CONFIG_HOME") ?? ((Os.getenv("HOME") ?? "") .. "/.config")
+    return config .. "/saule"
+  end
+
+  -- The mount point of the volume `path` is on: the longest that starts it.
+  static fn mountOf(volumes: table<StorageVolume>, path: string) -> string
+    local best = ""
+    for volume in volumes do
+      local mount = volume.mount
+      local inside = path == mount or String.starts(path, mount .. "/") or mount == "/"
+      if inside and #mount > #best then
+        best = mount
+      end
+    end
+    return best
+  end
+
+  -- The files of the system Saule Linux runs from: everything in memory,
+  -- not the disks mounted on it or what the kernel makes up.
+  static fn systemBytes() -> integer
+    local at = Storage.countedAt["system"]
+    local now = Os.timeMillis()
+    if at != nil and now - at! < Storage.systemFor then
+      return Storage.counted["system"] ?? 0
+    end
+    local total = 0
+    for name in Os.list("/") do
+      local skip = name == "proc" or name == "sys" or name == "dev" or name == "data"
+      if not skip and name != "run" and name != "tmp" then
+        total += Storage.size("/" .. name)
+      end
+    end
+    Storage.counted["system"] = total
+    Storage.countedAt["system"] = now
+    return total
+  end
+
+  -- What everything under `path` takes up, as counted in the last `keep`
+  -- milliseconds (`forever`: as counted the first time).
+  static fn sized(path: string, keep: integer) -> integer
+    local at = Storage.countedAt[path]
+    local now = Os.timeMillis()
+    if at != nil and (keep < 0 or now - at! < keep) then
+      return Storage.counted[path] ?? 0
+    end
+    local bytes = Storage.size(path)
+    Storage.counted[path] = bytes
+    Storage.countedAt[path] = now
+    return bytes
+  end
+
+  -- `MemTotal` from `/proc/meminfo`, in bytes.
+  static fn memoryBytes() -> integer
+    local file = Io.open("/proc/meminfo", IoMode.Read)
+    if file == nil then
+      return 0
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    for line in String.split(text, "\n") do
+      if String.starts(line, "MemTotal:") then
+        for part in String.split(line, " ") do
+          local kb = part as integer
+          if kb != nil then
+            return kb! * 1024
+          end
+        end
+      end
+    end
+    return 0
+  end
+
+  -- What everything under `path` takes up, in bytes: links not followed,
+  -- and the counting stopped at `countLimit` entries.
+  static fn size(path: string) -> integer
+    local info = Os.fsInfo(path)
+    if info == nil then
+      return 0
+    end
+    match info!.kind
+      case FsKind.File then
+        return info!.size
+      case FsKind.Dir then nil
+      case _ then
+        return 0
+    end
+    local total = 0
+    local count = 0
+    local pending: table<string> = {path}
+    while #pending > 0 and count < Storage.countLimit do
+      local folder = Table.remove(pending) ?? ""
+      for name in Os.list(folder) do
+        count += 1
+        local child = folder .. "/" .. name
+        local entry = Os.fsInfo(child)
+        if entry != nil then
+          match entry!.kind
+            case FsKind.File then
+              total += entry!.size
+            case FsKind.Dir then Table.insert(pending, child)
+            case _ then nil
+          end
+        end
+      end
+    end
+    return total
+  end
+
+  -- The first line of `path`, trimmed; "" when it can't be read.
+  static fn firstLine(path: string) -> string
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local line = file!.read("l") ?? ""
+    file!.close()
+    return String.trim(line)
+  end
+end

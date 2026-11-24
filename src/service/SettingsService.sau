@@ -8,11 +8,12 @@
 
 import shine
 from uikit import Display
-from "wmapi" import SystemInfo, WmOptions, WmService, WmSettings
+from "wmapi" import StorageReport, SystemInfo, WmOptions, WmService, WmSettings
 from wm import Keymap, Pointer, Session, Split
 from ui import Palette
 from log import Logger
 from GraphicsCard import GraphicsCard
+from Storage import Storage
 
 export class SettingsService implements WmSettings
   static local log: Logger = Logger("wm.settings")
@@ -66,6 +67,28 @@ export class SettingsService implements WmSettings
   end
 
   fn apply(options: WmOptions)
+    self.use(options)
+    SettingsService.log.info(
+      "settings applied",
+      {
+        gap: Palette.gap,
+        corners: Palette.radius,
+        accent: Palette.accentName,
+        wallpaper: Palette.wallpaperName,
+        newWindows: options.newWindows,
+        mod: Keymap.scheme(),
+        changedKeys: #Table.keys(Keymap.custom),
+        pointer: Pointer.speed,
+        scroll: Pointer.scrollSpeed,
+        natural: Pointer.natural,
+        leftHanded: Pointer.swapped,
+        followsFocus: Pointer.followsFocus,
+      }
+    )
+  end
+
+  -- Make `options` the window manager's, each kept to its range.
+  fn use(options: WmOptions) -> nil
     Palette.gap = Math.clamp(options.gap, 0.0, 24.0)
     Palette.grab = Math.clamp(options.grab, 0.0, 12.0)
     Session.resizeStep = Math.clamp(options.resizeStep, 1, 50)
@@ -87,23 +110,6 @@ export class SettingsService implements WmSettings
     end
     self.session.splitNext(split)
     self.session.refresh()
-    SettingsService.log.info(
-      "settings applied",
-      {
-        gap: Palette.gap,
-        corners: Palette.radius,
-        accent: Palette.accentName,
-        wallpaper: Palette.wallpaperName,
-        newWindows: options.newWindows,
-        mod: Keymap.scheme(),
-        changedKeys: #Table.keys(Keymap.custom),
-        pointer: Pointer.speed,
-        scroll: Pointer.scrollSpeed,
-        natural: Pointer.natural,
-        leftHanded: Pointer.swapped,
-        followsFocus: Pointer.followsFocus,
-      }
-    )
   end
 
   fn keys() -> table<string, string>
@@ -116,7 +122,6 @@ export class SettingsService implements WmSettings
   end
 
   fn about() -> SystemInfo
-    SettingsService.log.debug("about asked for")
     local info = SystemInfo()
     info.saule = Saule.full
     info.wm = Project.version
@@ -124,7 +129,7 @@ export class SettingsService implements WmSettings
     info.kernel = SettingsService.firstLine("/proc/sys/kernel/osrelease")
     SettingsService.processor(info)
     info.graphics = GraphicsCard.name()
-    info.memory = SettingsService.memory()
+    SettingsService.memory(info)
     info.uptime = SettingsService.uptime()
     -- In the window manager's own pixels, which its layout uses: on a
     -- high-density screen there are more of the screen's own.
@@ -133,7 +138,12 @@ export class SettingsService implements WmSettings
     info.screenHeight = Display.toLogical(h as float) as integer
     info.windows = #self.session.clients
     info.host = Keymap.host
+    info.storage = Storage.summary()
     return info
+  end
+
+  fn storage() -> StorageReport
+    return Storage.report()
   end
 
   -- The first line of `path`, or "" where there is no such file (on a
@@ -186,11 +196,40 @@ export class SettingsService implements WmSettings
     end
   end
 
-  -- `MemTotal` from `/proc/meminfo`, in kB: "MemTotal:  2041128 kB".
-  static fn memory() -> integer
-    local line = SettingsService.firstLine("/proc/meminfo")
-    local words = String.split(String.trim(String.sub(line, 10)), " ")
-    return (words[1] as integer?) ?? 0
+  -- Memory from `/proc/meminfo`, in kB: all of it ("MemTotal:  2041128
+  -- kB"), and what is in use: all but `MemAvailable`, the kernel's own
+  -- count of what a new program could have, which is the free memory and
+  -- the files it holds only until the room is wanted.
+  static fn memory(info: SystemInfo) -> nil
+    local file = Io.open("/proc/meminfo", IoMode.Read)
+    if file == nil then
+      return
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+
+    local available = -1
+    for line in String.split(text, "\n") do
+      if String.starts(line, "MemTotal:") then
+        info.memory = SettingsService.kilobytes(line)
+      elseif String.starts(line, "MemAvailable:") then
+        available = SettingsService.kilobytes(line)
+      end
+    end
+    if available >= 0 then
+      info.memoryUsed = Math.max(info.memory - available, 0)
+    end
+  end
+
+  -- The number in a `/proc/meminfo` line: "MemTotal:  2041128 kB".
+  static fn kilobytes(line: string) -> integer
+    for word in String.split(line, " ") do
+      local number = word as integer?
+      if number != nil then
+        return number!
+      end
+    end
+    return 0
   end
 
   -- Whole seconds since boot, from `/proc/uptime`: "8312.54 15873.20".

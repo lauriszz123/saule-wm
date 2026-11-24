@@ -16,4 +16,7 @@ export from WallpaperArt import *
 export from WmService import *
 export from KeyAction import *
 export from KeyActions import *
+export from StorageVolume import *
+export from StorageCategory import *
+export from StorageReport import *
 export from WmSettings import *

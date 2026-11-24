@@ -23,9 +23,16 @@ export class SystemInfo
   -- The kernel's release, e.g. "6.18.64-saule".
   kernel: string = ""
 
-  -- Memory, in kB, and how long the system has been up, in seconds.
+  -- Memory, in kB: all there is, and what programs are using of it now
+  -- (the rest is free, or holds files the kernel gives up when asked).
+  -- And how long the system has been up, in seconds.
   memory: integer = 0
+  memoryUsed: integer = 0
   uptime: integer = 0
+
+  -- The main disk, said in a line: "250.06 GB hard disk · 249.85 GB available", or
+  -- "" when there is none.
+  storage: string = ""
 
   -- The screen, in the window manager's own pixels.
   screenWidth: integer = 0

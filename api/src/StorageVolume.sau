@@ -1,0 +1,39 @@
+-- One place things are stored, as Settings' Storage pane shows it: a disk
+-- partition, a USB stick, another system's drive (nested), or the memory
+-- Saule Linux runs from. Sizes are in bytes; anything unknown is "" or 0.
+
+export class StorageVolume
+  -- What it is called: the file system's label, or a name for it
+  -- ("Saule Data", "System", "C:").
+  name: string = ""
+
+  -- The drive it is on, as its maker names it ("Hitachi HTS545025B9A300").
+  model: string = ""
+
+  -- What the drive says of itself, where it says it (ATA disks): its
+  -- serial number, how fast its platters spin (0: not said, or an SSD),
+  -- and how fast it is connected ("SATA 1.5 Gb/s").
+  serial: string = ""
+  rpm: integer = 0
+  connection: string = ""
+
+  -- "hdd", "ssd", "usb", "memory" or "disk" (a drive nothing more is
+  -- known of).
+  kind: string = "disk"
+
+  -- Where it is mounted, its device ("/dev/sda1") and its file system
+  -- ("ext4").
+  mount: string = ""
+  device: string = ""
+  fileSystem: string = ""
+
+  -- The whole drive's size, and this volume's: its room, what is used,
+  -- and what is free.
+  driveBytes: integer = 0
+  total: integer = 0
+  used: integer = 0
+  free: integer = 0
+
+  -- Saule's settings and files are kept here.
+  main: boolean = false
+end

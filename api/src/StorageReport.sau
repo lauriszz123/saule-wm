@@ -1,0 +1,57 @@
+-- Everything about storage, as the window manager finds it (see
+-- `WmSettings.storage`).
+
+from StorageVolume import StorageVolume
+from StorageCategory import StorageCategory
+
+export class StorageReport
+  -- Every volume worth showing, the main one first.
+  volumes: StorageVolume[] = {}
+
+  -- What the used space of each volume holds.
+  categories: StorageCategory[] = {}
+
+  -- Whether what Saule keeps (settings, files) outlives a restart, and
+  -- where it is kept.
+  persistent: boolean = false
+  keptIn: string = ""
+
+  -- "250.06 GB", "3.4 GB", "512 MB": in thousands, as drive makers and a
+  -- Mac count them.
+  static fn bytes(n: integer) -> string
+    local units = {"bytes", "KB", "MB", "GB", "TB"}
+    local value = n as float
+    local unit = 1
+    while value >= 1000.0 and unit < #units do
+      value /= 1000.0
+      unit += 1
+    end
+    if unit == 1 then
+      return tostring(n) .. " bytes"
+    end
+    -- Two places from gigabytes up, one below, as a Mac: "250.06 GB",
+    -- "12.3 MB"; none when they would be zeros.
+    local said = String.format("%.1f", value)
+    if unit >= 4 then
+      said = String.format("%.2f", value)
+    end
+    while String.contains(said, ".") and (String.ends(said, "0") or String.ends(
+      said,
+      "."
+    )) do
+      said = String.sub(said, 1, #said - 1)
+    end
+    return said .. " " .. units[unit]
+  end
+
+  -- How to call a kind of drive in a sentence.
+  static fn kindName(kind: string) -> string
+    return match kind
+      case "hdd" then "hard disk"
+      case "ssd" then "SSD"
+      case "usb" then "USB drive"
+      case "memory" then "memory"
+      case _ then "disk"
+    end
+  end
+end
