@@ -2,6 +2,7 @@
 -- happens to them. No drawing here; the views in `ui` show what this knows.
 
 import shine
+from log import Logger
 from Client import Client
 from Direction import Direction
 from Launcher import Launcher
@@ -9,10 +10,13 @@ from Program import Program
 from SessionEnd import SessionEnd
 from Split import Split
 from Workspace import Workspace
+from Keymap import Keymap
 
 export class Session
   -- How many workspaces there are.
   static count: integer = 4
+
+  static local log: Logger = Logger("wm.session")
 
   -- How much weight one arrow key moves in resize mode: a tenth of a new
   -- window's (see `Node.unit`).
@@ -47,6 +51,10 @@ export class Session
   -- unlocked.
   locked: boolean
 
+  -- The window Settings is recording a shortcut in, by id, or 0: every key
+  -- goes to it, the window manager's own too (see `recordingKeys`).
+  recordingFor: integer
+
   -- What is waiting for "are you sure?": "restart", "shutDown" or
   -- "logOut", or "" when nothing is.
   confirming: string
@@ -65,6 +73,7 @@ export class Session
   local changed: boolean
 
   fn init()
+    Keymap.choose()
     self.clients = {}
     self.workspaces = {}
     for number = 1, Session.count do
@@ -77,6 +86,7 @@ export class Session
     self.launching = false
     self.menuOpen = false
     self.locked = false
+    self.recordingFor = 0
     self.confirming = ""
     self.exitCode = 0
     self.given = {}
@@ -89,12 +99,32 @@ export class Session
     return self.workspaces[self.current]
   end
 
-  -- `client` has the keyboard now: it was clicked.
+  -- `client` has the keyboard now: it was clicked. A floating window
+  -- comes in front of the others.
   fn focus(client: Client?) -> nil
     if client != nil then
-      self.workspaces[client!.workspace].focused = client
+      local workspace = self.workspaces[client!.workspace]
+      workspace.focused = client
+      workspace.raise(client!)
     end
     self.sync()
+  end
+
+  -- Settings is (or no longer is) showing a new shortcut's keys, in the
+  -- window with the keyboard.
+  fn recordKeys(on: boolean) -> nil
+    self.recordingFor = 0
+    local client = self.focused
+    if on and client != nil then
+      self.recordingFor = client!.id
+    end
+  end
+
+  -- Whether every key goes to the focused window. Only while the window
+  -- that asked has the keyboard: anywhere else, the shortcuts work.
+  fn recordingKeys() -> boolean
+    local client = self.focused
+    return client != nil and client!.id == self.recordingFor
   end
 
   -- Give the keyboard to the window next to the focused one.
@@ -112,11 +142,32 @@ export class Session
     end
   end
 
-  -- Swap the focused window with the one next to it.
+  -- Swap the focused window with the one next to it, or move it a step
+  -- that way when it floats.
   fn moveToward(direction: Direction) -> nil
     local client = self.focused
-    if client != nil then
+    if client == nil then
+      return
+    end
+    if client!.floating then
+      client!.nudgeToward(direction)
+    else
       self.workspace().move(client!, direction)
+    end
+    self.sync()
+  end
+
+  -- Float `client`, or tile it when it floats: the focused window when
+  -- none is given. It has the keyboard after.
+  fn toggleFloating(client: Client? = nil) -> nil
+    local window = client ?? self.focused
+    -- A window of a fixed size always floats: tiled, it would be stretched.
+    if window != nil and window!.resizable then
+      self.workspaces[window!.workspace].toggleFloating(window!, self.split)
+      Session.log.debug(
+        "window floats",
+        {id: window!.id, floating: window!.floating}
+      )
       self.sync()
     end
   end
@@ -134,13 +185,18 @@ export class Session
   end
 
   -- Grow or shrink the focused window, in resize mode: see
-  -- `Workspace.resize`.
+  -- `Workspace.resize`, and `Client.resizeToward` for a floating one.
   fn resize(direction: Direction) -> nil
     local client = self.focused
-    if client != nil then
-      self.workspace().resize(client!, direction, Session.resizeStep)
-      self.sync()
+    if client == nil then
+      return
     end
+    if client!.floating then
+      client!.resizeToward(direction)
+    else
+      self.workspace().resize(client!, direction, Session.resizeStep)
+    end
+    self.sync()
   end
 
   -- Open the launcher, or close it when it is open. It takes over from
@@ -204,16 +260,19 @@ export class Session
     self.launching = false
     self.resizing = false
     self.locked = true
+    Session.log.info("screen locked")
     self.sync()
   end
 
   fn unlock() -> nil
     self.locked = false
+    Session.log.info("screen unlocked")
     self.sync()
   end
 
   -- End the window manager with `code`, asking every app to close first.
   fn leave(code: integer) -> nil
+    Session.log.info("session ending", {code: code, windows: #self.clients})
     for client in self.clients do
       Compositor.requestClose(client.id)
     end
@@ -228,6 +287,10 @@ export class Session
     local client = self.focused
     if client != nil then
       local pid = Compositor.pid(client!.id)
+      Session.log.warn(
+        "force quit",
+        {id: client!.id, title: client!.title, pid: pid ?? 0}
+      )
       if pid == nil or not Launcher.forceQuit(pid!) then
         Compositor.requestClose(client!.id)
       end
@@ -240,11 +303,16 @@ export class Session
   fn open(name: string) -> nil
     self.menuOpen = false
     local wanted = String.lower(name)
+    local found = false
     for program in self.programs() do
       if String.lower(program.name) == wanted then
         Launcher.start(program)
+        found = true
         break
       end
+    end
+    if not found then
+      Session.log.warn("no such app", {name: name})
     end
     self.sync()
   end
@@ -271,6 +339,7 @@ export class Session
   fn show(number: integer) -> nil
     if number >= 1 and number <= Session.count then
       self.current = number
+      Session.log.debug("workspace shown", {number: number})
       self.sync()
     end
   end
@@ -289,14 +358,16 @@ export class Session
     self.workspace().remove(client!)
     self.workspaces[number].add(client!, self.split)
     client!.workspace = number
+    Session.log.debug("window sent", {id: client!.id, workspace: number})
     self.sync()
   end
 
-  -- Ask the focused window's app to close it.
-  fn close() -> nil
-    local client = self.focused
-    if client != nil then
-      Compositor.requestClose(client!.id)
+  -- Ask `client`'s app to close it: the focused window's when none is
+  -- given.
+  fn close(client: Client? = nil) -> nil
+    local window = client ?? self.focused
+    if window != nil then
+      Compositor.requestClose(window!.id)
     end
   end
 
@@ -310,6 +381,10 @@ export class Session
     self.started = true
     self.given = apps
     Compositor.start()
+    Session.log.info(
+      "display started",
+      {host: Keymap.host, mod: Keymap.scheme()}
+    )
     Launcher.startApps(apps)
   end
 
@@ -324,20 +399,39 @@ export class Session
       changed = Changed.Windows
     end
 
+    Launcher.pump()
+
     for ev in Compositor.poll() do
       match ev.kind
         case WindowEventKind.Opened then
-          printf("wm: %s opened, id: %d\n", ev.title, ev.id)
-          local client = Client(ev.id, ev.title, self.current)
+          local width = ev.width as float
+          local height = ev.height as float
+          local client = Client(
+            ev.id,
+            ev.title,
+            self.current,
+            width,
+            height,
+            ev.resizable
+          )
+          Session.log.info(
+            "window opened",
+            {
+              id: ev.id,
+              title: ev.title,
+              size: ev.width .. "x" .. ev.height,
+              floating: client.floating,
+            }
+          )
           Table.insert(self.clients, client)
           self.workspace().add(client, self.split)
           self.sync()
           changed = Changed.Windows
 
         case WindowEventKind.Closed then
-          printf("wm: window %d closed\n", ev.id)
           local client = self.find(ev.id)
           if client != nil then
+            Session.log.info("window closed", {id: ev.id, title: client!.title})
             self.workspaces[client!.workspace].remove(client!)
             self.remove(ev.id)
             self.sync()
@@ -347,6 +441,7 @@ export class Session
         case WindowEventKind.Title then
           local client = self.find(ev.id)
           if client != nil then
+            Session.log.debug("window renamed", {id: ev.id, title: ev.title})
             client!.title = ev.title
             changed = Changed.Windows
           end
@@ -386,6 +481,10 @@ export class Session
     self.focused = self.workspace().focused
     if self.focused == nil then
       self.resizing = false
+    end
+    -- Recording ends when its window loses the keyboard.
+    if not self.recordingKeys() then
+      self.recordingFor = 0
     end
     self.changed = true
   end

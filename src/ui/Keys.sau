@@ -1,0 +1,97 @@
+-- Whether a key event is one of `Keymap`'s shortcuts. Exact: a shortcut
+-- is pressed only with just its modifiers held, so Mod+Shift+Q (close the
+-- window) is never also Mod+Q.
+
+import shine
+from uikit import *
+from wm import Keymap
+from "wmapi" import KeyActions
+
+export class Keys
+  static fn pressed(e: KeyEvent, shortcut: table<string>) -> boolean
+    local key = shortcut[#shortcut]
+    return e.key == key and Keys.holding(e, shortcut, false)
+  end
+
+  -- Whether `e` is any of the shortcuts that can be changed: one Settings
+  -- moved off Mod still never reaches an app.
+  static fn isShortcut(e: KeyEvent) -> boolean
+    for action in KeyActions.all() do
+      if Keys.pressed(e, Keymap.get(action.name)) then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Mod (and Shift, when `shift`) and nothing else held, whatever the key:
+  -- the arrows and number keys, which are each a shortcut of their own.
+  static fn modWith(e: KeyEvent, shift: boolean) -> boolean
+    local keys = Keymap.mod
+    if shift then
+      keys = Keymap.withMod({"shift"})
+    end
+    return Keys.holding(e, keys, true)
+  end
+
+  -- Whether Mod is held at all, with or without others: a key with it
+  -- is the window manager's, and never reaches an app.
+  static fn modHeld(e: KeyEvent) -> boolean
+    for name in Keymap.mod do
+      if not Keys.has(e, name) then
+        return false
+      end
+    end
+    return true
+  end
+
+  -- Whether Mod is down now, read from the keyboard: for text, which
+  -- arrives without modifiers.
+  static fn modDown() -> boolean
+    for name in Keymap.mod do
+      if not Keyboard.isAnyDown(Keys.engineNames(name)) then
+        return false
+      end
+    end
+    return true
+  end
+
+  -- Exactly the modifiers in `keys` held. With `all` every name in `keys`
+  -- is a modifier; without, the last one is the key itself.
+  static fn holding(e: KeyEvent, keys: table<string>, all: boolean) -> boolean
+    local count = #keys
+    if not all then
+      count -= 1
+    end
+    local wanted: table<string, boolean> = {}
+    for i = 1, count do
+      wanted[keys[i]] = true
+    end
+    for name in {"ctrl", "alt", "shift", "super"} do
+      if Keys.has(e, name) != (wanted[name] == true) then
+        return false
+      end
+    end
+    return true
+  end
+
+  static fn has(e: KeyEvent, name: string) -> boolean
+    return match name
+      case "ctrl" then e.ctrl
+      case "alt" then e.alt
+      case "shift" then e.shift
+      case "super" then e.meta
+      case _ then false
+    end
+  end
+
+  -- The engine's names for a modifier's keys, left and right.
+  static fn engineNames(name: string) -> table<string>
+    return match name
+      case "ctrl" then {"lctrl", "rctrl"}
+      case "alt" then {"lalt", "ralt"}
+      case "shift" then {"lshift", "rshift"}
+      case _ then {"lgui", "rgui"}
+    end
+  end
+end

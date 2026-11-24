@@ -5,17 +5,28 @@
 
 import shine
 from uikit import *
-from wm import Client, Session
+from wm import Client, Pointer, Session
 from ClientView import ClientView
+from Keys import Keys
 
 export class ClientWindow extends View
   client: Client
   session: Session
 
-  fn init(client: Client, session: Session, key: string? = nil)
+  -- In a floating window's frame, which draws the outline and shadow (see
+  -- `ClientView.decorated`).
+  decorated: boolean
+
+  fn init(
+    client: Client,
+    session: Session,
+    decorated: boolean = false,
+    key: string? = nil
+  )
     self.super(key)
     self.client = client
     self.session = session
+    self.decorated = decorated
   end
 
   -- It has a tick to run: see `View.ticks`.
@@ -61,10 +72,10 @@ export class ClientWindow extends View
         return ClientWindow.forwardKey(session, id, e, false)
       end,
       onText: fn(text: string) -> boolean
-        -- Typed with Super held, it was a shortcut (Super+Shift+2 types
-        -- "@"); typed in resize mode, it was a stray key. Neither is the
-        -- app's.
-        if Keyboard.isAnyDown({"lgui", "rgui"}) or session.resizing then
+        -- Typed with the window manager's key held, it was a shortcut
+        -- (Super+Shift+2 types "@"); typed in resize mode, it was a stray
+        -- key. Neither is the app's.
+        if Keys.modDown() or session.resizing then
           return false
         end
         Compositor.sendText(id, text)
@@ -81,19 +92,32 @@ export class ClientWindow extends View
           session.focus(client)
         end
       end,
-      child: ClientView(self.client, node, session.focused == client)
+      child: ClientView(
+        self.client,
+        node,
+        session.focused == client,
+        self.decorated,
+        Pointer.followsFocus and not session.ownsKeyboard()
+      )
     )
   end
 
   -- Pass a key on to the app, except the window manager's own shortcuts,
-  -- and every key in resize mode, which go on up to the desktop.
+  -- and every key in resize mode, which go on up to the desktop. While
+  -- Settings records a shortcut in the window, every key is the app's.
+  --
+  -- A key let go always reaches the app: one held back could be a key it
+  -- saw pressed (while Settings recorded, or before Mod went down), and
+  -- would stay down for it, repeating, for good.
   static fn forwardKey(
     session: Session,
     id: integer,
     e: KeyEvent,
     down: boolean
   ) -> boolean
-    if e.meta or (e.ctrl and e.alt) or session.resizing then
+    local ours = Keys.modHeld(e) or (e.ctrl and e.alt) or Keys.isShortcut(e)
+    local held = ours or session.resizing
+    if down and held and not session.recordingKeys() then
       return false
     end
 

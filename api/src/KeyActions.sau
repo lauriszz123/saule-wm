@@ -1,0 +1,138 @@
+-- The shortcuts that can be changed, and how a shortcut is written down to
+-- cross between Settings and the window manager.
+--
+-- A shortcut is its keys, the modifiers and then the key, by the engine's
+-- names, as uikit's `Shortcut` shows them: {"ctrl", "alt", "d"}. Written
+-- down they are joined with "+": "ctrl+alt+d".
+--
+-- Moving between windows and workspaces (Mod and the arrows or a number)
+-- is not here: those are whole families of keys, held with the window
+-- manager's key, whichever it is.
+
+from KeyAction import KeyAction
+
+export class KeyActions
+  -- The system's: in the order Settings lists them.
+  static system: KeyAction[] = {
+    KeyAction("launcher", "Open the launcher"),
+    KeyAction("lock", "Lock the screen"),
+    KeyAction("forceQuit", "Force quit the window's app"),
+    KeyAction("quit", "Quit the window manager"),
+  }
+
+  -- The focused window's.
+  static windows: KeyAction[] = {
+    KeyAction("close", "Close the window"),
+    KeyAction("float", "Float or tile the window"),
+    KeyAction("resize", "Resize the window"),
+    KeyAction("beside", "Open the next window beside"),
+    KeyAction("below", "Open the next window below"),
+  }
+
+  -- The keys that are held with others, in the order a shortcut lists
+  -- them, as a Mac does: Ctrl, Alt, Shift, then Super (Command).
+  static modifiers: string[] = {"ctrl", "alt", "shift", "super"}
+
+  -- What the action called `name` is called, or `name` itself.
+  static fn title(name: string) -> string
+    for action in KeyActions.all() do
+      if action.name == name then
+        return action.title
+      end
+    end
+    return name
+  end
+
+  -- Every action, the system's first.
+  static fn all() -> table<KeyAction>
+    local out: table<KeyAction> = {}
+    for action in KeyActions.system do
+      Table.insert(out, action)
+    end
+    for action in KeyActions.windows do
+      Table.insert(out, action)
+    end
+    return out
+  end
+
+  -- Whether `name` is one of the actions.
+  static fn known(name: string) -> boolean
+    for action in KeyActions.all() do
+      if action.name == name then
+        return true
+      end
+    end
+    return false
+  end
+
+  static fn isModifier(key: string) -> boolean
+    for name in KeyActions.modifiers do
+      if name == key then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- "ctrl+alt+d" as its keys; "" as none.
+  static fn split(text: string) -> table<string>
+    if text == "" then
+      return {}
+    end
+    return String.split(text, "+")
+  end
+
+  static fn join(keys: table<string>) -> string
+    return Table.concat(keys, "+")
+  end
+
+  -- Whether `keys` can be a shortcut: one key that is not a modifier,
+  -- last, after at least one of Ctrl, Alt or Super — a key with only
+  -- Shift, or none, is typing, and must reach the app.
+  static fn valid(keys: table<string>) -> boolean
+    if #keys < 2 then
+      return false
+    end
+    local last = keys[#keys]
+    if last == "" or KeyActions.isModifier(last) or last == "+" then
+      return false
+    end
+    local held = false
+    for i = 1, #keys - 1 do
+      local key = keys[i]
+      if not KeyActions.isModifier(key) then
+        return false
+      end
+      if key != "shift" then
+        held = true
+      end
+    end
+    return held
+  end
+
+  -- The same keys, whatever order the modifiers came in: for telling
+  -- whether two shortcuts are one.
+  static fn same(a: table<string>, b: table<string>) -> boolean
+    if #a != #b or #a == 0 then
+      return false
+    end
+    if a[#a] != b[#b] then
+      return false
+    end
+    for name in KeyActions.modifiers do
+      if KeyActions.has(a, name) != KeyActions.has(b, name) then
+        return false
+      end
+    end
+    return true
+  end
+
+  static fn has(keys: table<string>, name: string) -> boolean
+    for i = 1, #keys - 1 do
+      if keys[i] == name then
+        return true
+      end
+    end
+    return false
+  end
+end

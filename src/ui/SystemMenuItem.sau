@@ -1,5 +1,5 @@
 -- One line of the system menu: what it does, and its shortcut on the
--- right as a Mac writes them. Lit in the accent under the pointer, as on
+-- right as a Mac shows them, in uikit's drawn key symbols (`Shortcut`). Lit in the accent under the pointer, as on
 -- a Mac; greyed out, and doing nothing, when it can't be used now.
 
 from uikit import *
@@ -7,13 +7,16 @@ from Palette import Palette
 
 export class SystemMenuItem extends View
   title: string
-  shortcut: string
+
+  -- The shortcut's keys, as uikit's `Shortcut` names them: {"ctrl",
+  -- "super", "q"}. None for an item without one.
+  shortcut: table<string>
   enabled: boolean
   onPick: fn() -> nil
 
   fn init(
     title: string,
-    shortcut: string,
+    shortcut: table<string>,
     enabled: boolean,
     onPick: fn() -> nil,
     key: string? = nil
@@ -41,10 +44,12 @@ export class SystemMenuItem extends View
       hint = Palette.text
     end
 
-    local row = HStack(alignment: StackAlignment.Center) do
-      Text(self.title).font(13.0).foregroundStyle(text)
-      Spacer()
-      Text(self.shortcut).font(12.0).foregroundStyle(hint)
+    -- The title takes the room the shortcut leaves, and a title too long
+    -- for it ends in "…" rather than running into the shortcut.
+    local title = Text(self.title).font(13.0).foregroundStyle(text)
+    local row = HStack(alignment: StackAlignment.Center, spacing: 16.0) do
+      title.lineLimit(1).expanded()
+      Shortcut(self.shortcut, color: hint, size: 11.0)
     end
     local inset = EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0)
     local shown = row.padding(insets: inset).background(fill, 5.0)

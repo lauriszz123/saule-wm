@@ -1,21 +1,27 @@
 -- The whole screen: the wallpaper, the status bar along the top, and the
--- windows of the workspace on screen below it, tiled with a gap around
--- each. The launcher, when it is open, goes over all of it.
+-- windows of the workspace on screen below it: the tiled ones with a gap
+-- around each, and the floating ones over them. The launcher, when it is
+-- open, goes over all of it.
 
 from uikit import *
-from wm import Changed, Direction, Node, Session, Split
+from wm import Changed, Direction, Keymap, Node, Session, Split
 from Palette import Palette
 from Wallpaper import Wallpaper
 from StatusBar import StatusBar
 from ClientWindow import ClientWindow
 from SplitView import SplitView
+from FloatingLayer import FloatingLayer
 from LauncherView import LauncherView
 from Transition import Transition
 from SystemMenu import SystemMenu
 from ConfirmDialog import ConfirmDialog
 from LockScreen import LockScreen
+from Keys import Keys
+from log import Logger
 
 export class Desktop extends View
+  static local log: Logger = Logger("wm.keys")
+
   session: Session
   apps: table<string>
 
@@ -62,17 +68,12 @@ export class Desktop extends View
     end
 
     -- Over the windows: the launcher, the system menu, a question, and
-    -- the lock screen over everything. The launcher and the lock screen
-    -- come and go with a motion, so their layers are always there (see
-    -- `Transition`).
+    -- the lock screen over everything. Each comes and goes with a motion,
+    -- so their layers are always there (see `Transition`).
     local launcher = Desktop.cover(Desktop.launcher(session), "launcher")
-    local layers: table<View> = {screen, launcher}
-    if session.menuOpen then
-      Table.insert(layers, Desktop.cover(SystemMenu(session), "menu"))
-    end
-    if session.confirming != "" then
-      Table.insert(layers, Desktop.cover(ConfirmDialog(session), "confirm"))
-    end
+    local menu = Desktop.cover(Desktop.menu(session), "menu")
+    local confirm = Desktop.cover(Desktop.question(session), "confirm")
+    local layers: table<View> = {screen, launcher, menu, confirm}
     Table.insert(layers, Desktop.cover(Desktop.lockScreen(session), "lock"))
 
     local shortcuts = fn(e: KeyEvent) -> boolean
@@ -84,22 +85,36 @@ export class Desktop extends View
     return Wallpaper(child: desktop)
   end
 
-  -- The window manager's own keys, whichever window has focus. Super is
-  -- the key that says "this is for the window manager", as in i3:
+  -- The window manager's own keys, whichever window has focus. They are
+  -- held with its key, "Mod": Super on Saule Linux, as a Mac's Command,
+  -- and another nested in a desktop that keeps Super for itself (see
+  -- `Keymap`, which also has the ones that differ):
   --
-  --   Super + arrows            the keyboard to the window that way
-  --   Super + Shift + arrows    swap the window with the one that way
-  --   Super + H / V             the next window goes beside / below
-  --   Super + R                 resize mode (see `resizeKey`)
-  --   Super + Space / D         the launcher
-  --   Super + Ctrl + Q          lock the screen
-  --   Super + Alt + Escape      force quit the window's app
-  --   Super + 1…4               that workspace
-  --   Super + Shift + 1…4       send the window to that workspace
-  --   Super + Shift + Q         close the window
-  --   Ctrl + Alt + Q            quit the window manager
+  --   Mod + arrows              the keyboard to the window that way
+  --   Mod + Shift + arrows      swap the window with the one that way
+  --   Mod + 1…4                 that workspace
+  --   Mod + Shift + 1…4         send the window to that workspace
+  --   Mod + H / V               the next window goes beside / below
+  --   Mod + Shift + Space       float the window, or tile it
+  --   Mod + R                   resize mode (see `resizeKey`)
+  --   Mod + Shift + Q           close the window
+  --   `Keymap.launcher`         the launcher (Super + Space)
+  --   `Keymap.lock`             lock the screen (Ctrl + Super + Q)
+  --   `Keymap.forceQuit`        force quit (Alt + Super + Escape)
+  --   `Keymap.quit`             quit the window manager
   static fn shortcut(session: Session, e: KeyEvent) -> boolean
-    if e.ctrl and e.alt and e.key == "q" then
+    Desktop.log.trace(
+      "key",
+      {
+        key: e.key,
+        ctrl: e.ctrl,
+        alt: e.alt,
+        shift: e.shift,
+        meta: e.meta,
+      }
+    )
+
+    if Keys.pressed(e, Keymap.quit) then
       App.quit()
       return true
     end
@@ -113,30 +128,52 @@ export class Desktop extends View
       return Desktop.resizeKey(session, e)
     end
 
-    if not e.meta then
+    -- The shortcuts first, whatever they are held with: Settings may have
+    -- moved one off Mod. Then the arrows and numbers, which are Mod's.
+    if Desktop.command(session, e) then
+      Desktop.log.debug("shortcut", {key: e.key})
+      return true
+    end
+    if Keys.modHeld(e) then
+      return Desktop.moveKey(session, e)
+    end
+    return false
+  end
+
+  -- The shortcut `e` is, done; false when it is none.
+  static fn command(session: Session, e: KeyEvent) -> boolean
+    if Keys.pressed(e, Keymap.launcher) then
+      session.toggleLauncher()
+    elseif Keys.pressed(e, Keymap.float) then
+      session.toggleFloating()
+    elseif Keys.pressed(e, Keymap.resize) then
+      session.toggleResizing()
+    elseif Keys.pressed(e, Keymap.lock) then
+      session.lock()
+    elseif Keys.pressed(e, Keymap.forceQuit) then
+      session.forceQuit()
+    elseif Keys.pressed(e, Keymap.close) then
+      session.close()
+    elseif Keys.pressed(e, Keymap.beside) then
+      session.splitNext(Split.Horizontal)
+    elseif Keys.pressed(e, Keymap.below) then
+      session.splitNext(Split.Vertical)
+    else
       return false
     end
+    return true
+  end
 
-    if e.key == "space" or e.key == "d" then
-      session.toggleLauncher()
-      return true
-    end
-    if e.key == "r" then
-      session.toggleResizing()
-      return true
-    end
-    if e.ctrl and e.key == "q" then
-      session.lock()
-      return true
-    end
-    if e.alt and e.key == "escape" then
-      session.forceQuit()
-      return true
+  -- Mod with an arrow or a number, and Shift to take the window along.
+  static fn moveKey(session: Session, e: KeyEvent) -> boolean
+    local shift = Keys.modWith(e, true)
+    if not shift and not Keys.modWith(e, false) then
+      return false
     end
 
     local direction = Desktop.direction(e.key)
     if direction != nil then
-      if e.shift then
+      if shift then
         session.moveToward(direction!)
       else
         session.focusToward(direction!)
@@ -146,27 +183,13 @@ export class Desktop extends View
 
     local number = Desktop.workspaceKey(e.key)
     if number > 0 then
-      if e.shift then
+      if shift then
         session.sendTo(number)
       else
         session.show(number)
       end
       return true
     end
-
-    if e.key == "h" then
-      session.splitNext(Split.Horizontal)
-      return true
-    end
-    if e.key == "v" then
-      session.splitNext(Split.Vertical)
-      return true
-    end
-    if e.shift and e.key == "q" then
-      session.close()
-      return true
-    end
-
     return false
   end
 
@@ -175,7 +198,7 @@ export class Desktop extends View
   --
   --   arrows                    Right / Down grow the window, Left / Up
   --                             shrink it
-  --   Escape, Enter, Super + R  done
+  --   Escape, Enter, Mod + R    done
   static fn resizeKey(session: Session, e: KeyEvent) -> boolean
     local direction = Desktop.direction(e.key)
     if direction != nil then
@@ -222,10 +245,38 @@ export class Desktop extends View
     return Transition(shown, content, 0.16, 0.96, anchorY: bar)
   end
 
-  -- The lock screen, as a Mac's: locking fades it in over the desktop;
-  -- unlocking fades it out, and the desktop is there behind it. A fade
-  -- only, without the launcher's change of size: across the whole screen,
-  -- that is more than a netbook can draw smoothly.
+  -- The system menu, fading in and out as a Mac's menus do: quickly, and
+  -- without a change of size, which would move it off the sun it hangs
+  -- from.
+  static fn menu(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.menuOpen
+    end
+    local content = fn() -> View
+      return SystemMenu(session)
+    end
+    return Transition(shown, content, 0.12, 1.0)
+  end
+
+  -- "Are you sure?" before the session ends, fading in over the screen as
+  -- the screen behind blurs (see `ConfirmDialog`). A fade only: the
+  -- blurred, dimmed screen is the whole screen from the start, and
+  -- growing it would leave its edges uncovered.
+  static fn question(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.confirming != ""
+    end
+    local content = fn() -> View
+      return ConfirmDialog(session)
+    end
+    return Transition(shown, content, 0.18, 1.0)
+  end
+
+  -- The lock screen, as a Mac's: locking fades it in over the desktop,
+  -- coming out of a blur as it does; unlocking blurs it again as it fades
+  -- out, and the desktop is there behind it. Without the launcher's change
+  -- of size: across the whole screen, that is more than a netbook can draw
+  -- smoothly.
   static fn lockScreen(session: Session) -> View
     local shown = fn() -> boolean
       return session.locked
@@ -233,7 +284,7 @@ export class Desktop extends View
     local content = fn() -> View
       return LockScreen(session)
     end
-    return Transition(shown, content, 0.35, 1.0)
+    return Transition(shown, content, 0.35, 1.0, blur: Palette.lockBlur)
   end
 
   -- `view` over the whole screen, as the layer called `name`. Named, so
@@ -276,8 +327,21 @@ export class Desktop extends View
     return 0
   end
 
-  -- The workspace on screen's windows, laid out as its tree says.
+  -- The workspace on screen's windows: the tiled ones laid out as its
+  -- tree says, and the floating ones over them. Both layers are always
+  -- there, so a window floating or settling back never rebuilds the rest.
   static fn windows(session: Session) -> View
+    local floating = FloatingLayer(session)
+    local layers = {
+      Desktop.cover(Desktop.tiled(session), "tiled"),
+      Desktop.cover(floating, "floating"),
+    }
+    return ZStack(children: layers)
+  end
+
+  -- The tiled windows, or nothing. Only the view that is used is made: in
+  -- a builder's block, a view made and left over would join it as a child.
+  static fn tiled(session: Session) -> View
     local root = session.workspace().root
     if root == nil then
       return Spacer()

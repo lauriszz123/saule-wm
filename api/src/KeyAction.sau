@@ -1,0 +1,12 @@
+-- One thing a shortcut does, as Settings lists it: its name, which both
+-- sides use, and what Settings calls it.
+
+export class KeyAction
+  name: string
+  title: string
+
+  fn init(name: string, title: string)
+    self.name = name
+    self.title = title
+  end
+end

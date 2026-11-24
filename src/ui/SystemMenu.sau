@@ -5,19 +5,21 @@
 --   ─────────────────
 --   System Settings…
 --   ─────────────────
---   Force Quit Settings         ⌥⌘⎋
+--   Force Quit Settings         [Alt] [☀] [Esc]
 --   ─────────────────
 --   Restart…
 --   Shut Down…
 --   ─────────────────
---   Lock Screen                 ⌃⌘Q
+--   Lock Screen                 [Ctrl] [☀] [Q]
 --   Log Out…
 --
--- ⌘ is Super. A click anywhere else, or Escape, closes it.
+-- ☀ is the Super key (see uikit's `Shortcut`). Nested in another desktop
+-- the keys are others (see `Keymap`), and the menu shows those. A click
+-- anywhere else, or Escape, closes it.
 
 from uikit import *
 -- `Client` too: `session.focused` is one, and its fields need the type.
-from wm import Client, Session
+from wm import Client, Keymap, Session
 from Palette import Palette
 from SystemMenuItem import SystemMenuItem
 
@@ -38,41 +40,49 @@ export class SystemMenu extends View
       quitting = "Force Quit " .. focused!.title
     end
 
+    -- The shortcuts as `Desktop.shortcut` takes them here.
+    local forceQuitKeys = Keymap.forceQuit
+    local lockKeys = Keymap.lock
+
     local items: table<View> = {
-      SystemMenu.item("About This System", "", true, fn()
+      SystemMenu.item("About This System", {}, true, fn()
         session.open("about")
       end),
       SystemMenu.separator(),
-      SystemMenu.item("System Settings…", "", true, fn()
+      SystemMenu.item("System Settings…", {}, true, fn()
         session.open("settings")
       end),
       SystemMenu.separator(),
-      SystemMenu.item(quitting, "⌥⌘⎋", focused != nil, fn()
+      SystemMenu.item(quitting, forceQuitKeys, focused != nil, fn()
         session.forceQuit()
       end),
       SystemMenu.separator(),
-      SystemMenu.item("Restart…", "", true, fn()
+      SystemMenu.item("Restart…", {}, true, fn()
         session.confirm("restart")
       end),
-      SystemMenu.item("Shut Down…", "", true, fn()
+      SystemMenu.item("Shut Down…", {}, true, fn()
         session.confirm("shutDown")
       end),
       SystemMenu.separator(),
-      SystemMenu.item("Lock Screen", "⌃⌘Q", true, fn()
+      SystemMenu.item("Lock Screen", lockKeys, true, fn()
         session.lock()
       end),
-      SystemMenu.item("Log Out…", "", true, fn()
+      SystemMenu.item("Log Out…", {}, true, fn()
         session.confirm("logOut")
       end),
     }
 
     local fill = StackAlignment.Fill
     local list = VStack(alignment: fill, spacing: 1.0, children: items)
-    local card = list.padding(5.0).background(
-      Palette.launcher,
-      8.0,
-      border: Palette.launcherOutline
+    -- The same frosted glass as the launcher's: what is behind it blurred,
+    -- under the tint.
+    local glass = Backdrop(
+      child: list.padding(5.0),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 8.0
     )
+    local card = glass.background(nil, 8.0, border: Palette.launcherOutline)
 
     -- A press on the menu's own background is the menu's, and does
     -- nothing; anywhere else closes it.
@@ -93,7 +103,7 @@ export class SystemMenu extends View
 
   static fn item(
     title: string,
-    shortcut: string,
+    shortcut: table<string>,
     enabled: boolean,
     pick: fn() -> nil
   ) -> View

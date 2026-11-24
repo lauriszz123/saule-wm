@@ -1,0 +1,261 @@
+-- Which keys do what. Every shortcut is held with the window manager's
+-- key, "Mod", and which key that is depends on where it runs, because a
+-- desktop around it keeps some keys for itself and they never arrive:
+--
+--   On Saule Linux    Super, as a Mac uses Command: nothing else is there
+--                     to take it. Super+Space opens the launcher.
+--   Nested, Windows   Ctrl+Alt. Windows keeps Super (Start) and some Alt
+--                     keys (Alt+Space, Alt+Tab, Alt+Esc) for itself.
+--   Nested, macOS     Ctrl+Option. macOS keeps Command (Cmd+Space is
+--                     Spotlight, Cmd+Q quits) and Ctrl+arrows (Spaces).
+--   Nested, Linux     Alt. GNOME and KDE keep Super, and Ctrl+Alt+arrows
+--                     switch their workspaces.
+--
+-- `SAULE_WM_KEY=super`, `alt` or `ctrl+alt` chooses, whatever the guess;
+-- Settings chooses over both (`configure`), and can change any of the
+-- shortcuts with names (wmapi's `KeyActions`) from what they are by
+-- default.
+--
+-- A shortcut is a list of key names, the modifiers and then the key, as
+-- uikit's `Shortcut` shows them: {"ctrl", "super", "q"}. It is only
+-- pressed when exactly those modifiers are held.
+
+from "wmapi" import KeyActions
+
+export class Keymap
+  -- Where the guess landed: "saule", "windows", "macos" or "linux".
+  static host: string = "saule"
+
+  -- The modifiers that make "Mod".
+  static mod: table<string> = {"super"}
+
+  -- The launcher, after Spotlight.
+  static launcher: table<string> = {"super", "space"}
+
+  -- The system menu's: lock the screen, force quit the window's app.
+  static lock: table<string> = {"ctrl", "super", "q"}
+  static forceQuit: table<string> = {"alt", "super", "escape"}
+
+  -- Close the window; float it or tile it; resize mode; the next window
+  -- beside or below.
+  static close: table<string> = {"super", "shift", "q"}
+  static float: table<string> = {"super", "shift", "space"}
+  static resize: table<string> = {"super", "r"}
+  static beside: table<string> = {"super", "h"}
+  static below: table<string> = {"super", "v"}
+
+  -- Quit the window manager.
+  static quit: table<string> = {"ctrl", "alt", "q"}
+
+  -- What Settings chose: Mod ("" for the guess), and the shortcuts it
+  -- changed, by action, written as wmapi writes them ("ctrl+alt+d").
+  static chosenMod: string = ""
+  static custom: table<string, string> = {}
+
+  -- Settle the keys: as the window manager starts, and again whenever
+  -- Settings changes them.
+  static fn choose() -> nil
+    Keymap.host = Keymap.guessHost()
+    local scheme = Keymap.defaultScheme()
+    if Keymap.isScheme(Keymap.chosenMod) then
+      scheme = Keymap.chosenMod
+    end
+
+    match scheme
+      case "super" then Keymap.useSuper()
+      case "alt" then Keymap.useAlt()
+      case _ then Keymap.useCtrlAlt()
+    end
+
+    for name, written in Keymap.custom do
+      local keys = KeyActions.split(written)
+      if KeyActions.known(name) and KeyActions.valid(keys) then
+        Keymap.set(name, keys)
+      end
+    end
+  end
+
+  -- Mod as it suits where the window manager runs, or as
+  -- `SAULE_WM_KEY` says.
+  static fn defaultScheme() -> string
+    local asked = Os.getenv("SAULE_WM_KEY") ?? ""
+    if Keymap.isScheme(asked) then
+      return asked
+    end
+    return match Keymap.guessHost()
+      case "saule" then "super"
+      case "linux" then "alt"
+      case _ then "ctrl+alt"
+    end
+  end
+
+  static fn isScheme(name: string) -> boolean
+    return name == "super" or name == "alt" or name == "ctrl+alt"
+  end
+
+  -- Use what Settings chose: `mod` ("" for the default) and the
+  -- shortcuts changed from their defaults. One that is not a shortcut
+  -- (no Ctrl, Alt or Super), or is another's already, is left out.
+  static fn configure(mod: string, custom: table<string, string>) -> nil
+    Keymap.chosenMod = ""
+    if Keymap.isScheme(mod) then
+      Keymap.chosenMod = mod
+    end
+    Keymap.custom = {}
+    Keymap.choose()
+
+    local kept: table<string, string> = {}
+    for action in KeyActions.all() do
+      local written = custom[action.name]
+      if written != nil then
+        local keys = KeyActions.split(written!)
+        if KeyActions.valid(keys) and Keymap.owner(keys) == "" then
+          kept[action.name] = KeyActions.join(keys)
+          Keymap.set(action.name, keys)
+        end
+      end
+    end
+    Keymap.custom = kept
+  end
+
+  -- Which action `keys` already do, or "".
+  static fn owner(keys: table<string>) -> string
+    for action in KeyActions.all() do
+      if KeyActions.same(Keymap.get(action.name), keys) then
+        return action.name
+      end
+    end
+    return ""
+  end
+
+  -- Every shortcut, by action, written down; and "mod".
+  static fn written() -> table<string, string>
+    local out: table<string, string> = {mod: Keymap.scheme()}
+    for action in KeyActions.all() do
+      out[action.name] = KeyActions.join(Keymap.get(action.name))
+    end
+    return out
+  end
+
+  -- The shortcut for the action `name`.
+  static fn get(name: string) -> table<string>
+    return match name
+      case "launcher" then Keymap.launcher
+      case "lock" then Keymap.lock
+      case "forceQuit" then Keymap.forceQuit
+      case "quit" then Keymap.quit
+      case "close" then Keymap.close
+      case "float" then Keymap.float
+      case "resize" then Keymap.resize
+      case "beside" then Keymap.beside
+      case "below" then Keymap.below
+      case _ then {}
+    end
+  end
+
+  static fn set(name: string, keys: table<string>) -> nil
+    match name
+      case "launcher" then
+        Keymap.launcher = keys
+      case "lock" then
+        Keymap.lock = keys
+      case "forceQuit" then
+        Keymap.forceQuit = keys
+      case "quit" then
+        Keymap.quit = keys
+      case "close" then
+        Keymap.close = keys
+      case "float" then
+        Keymap.float = keys
+      case "resize" then
+        Keymap.resize = keys
+      case "beside" then
+        Keymap.beside = keys
+      case "below" then
+        Keymap.below = keys
+      case _ then nil
+    end
+  end
+
+  -- "Mod" as it is now, written out: "super", "alt" or "ctrl+alt".
+  static fn scheme() -> string
+    return Table.concat(Keymap.mod, "+")
+  end
+
+  -- Mod, then `keys`.
+  static fn withMod(keys: table<string>) -> table<string>
+    local out: table<string> = {}
+    for key in Keymap.mod do
+      Table.insert(out, key)
+    end
+    for key in keys do
+      Table.insert(out, key)
+    end
+    return out
+  end
+
+  -- Saule Linux: the keys a Mac has, Super standing for Command.
+  static fn useSuper() -> nil
+    Keymap.mod = {"super"}
+    Keymap.launcher = {"super", "space"}
+    Keymap.lock = {"ctrl", "super", "q"}
+    Keymap.forceQuit = {"alt", "super", "escape"}
+    Keymap.quit = {"ctrl", "alt", "q"}
+    Keymap.useCommon()
+  end
+
+  -- Nested on Linux. Not Alt+Space (the window menu) or Alt+Esc
+  -- (switching windows), which the desktop around takes.
+  static fn useAlt() -> nil
+    Keymap.mod = {"alt"}
+    Keymap.launcher = {"alt", "d"}
+    Keymap.lock = {"alt", "l"}
+    Keymap.forceQuit = {"alt", "shift", "k"}
+    Keymap.quit = {"alt", "shift", "e"}
+    Keymap.useCommon()
+  end
+
+  -- Nested on Windows or macOS. The launcher is Mod+D, as i3's dmenu, not
+  -- Mod+Space: apps on the desktop around take Ctrl+Alt+Space for their
+  -- own pop-ups (Claude's "Ask me" on Windows), and on macOS
+  -- Ctrl+Option+Space changes the input source.
+  static fn useCtrlAlt() -> nil
+    Keymap.mod = {"ctrl", "alt"}
+    Keymap.launcher = {"ctrl", "alt", "d"}
+    Keymap.lock = {"ctrl", "alt", "l"}
+    Keymap.forceQuit = {"ctrl", "alt", "escape"}
+    Keymap.quit = {"ctrl", "alt", "shift", "e"}
+    Keymap.useCommon()
+  end
+
+  -- The ones that are Mod and a key whatever Mod is.
+  static fn useCommon() -> nil
+    Keymap.close = Keymap.withMod({"shift", "q"})
+    Keymap.float = Keymap.withMod({"shift", "space"})
+    Keymap.resize = Keymap.withMod({"r"})
+    Keymap.beside = Keymap.withMod({"h"})
+    Keymap.below = Keymap.withMod({"v"})
+  end
+
+  -- Where the window manager runs: on the screen of Saule Linux, or in a
+  -- window on another system's desktop.
+  static fn guessHost() -> string
+    match Os.platform()
+      case OsPlatform.Macos then
+        return "macos"
+      case OsPlatform.Windows then
+        return "windows"
+      case _ then nil
+    end
+    -- Linux under Windows (WSL): the keys are Windows' to take.
+    if Os.getenv("WSL_DISTRO_NAME") != nil or Os.getenv("WSL_INTEROP") != nil then
+      return "windows"
+    end
+    local x11 = Os.getenv("DISPLAY") != nil
+    local wayland = Os.getenv("WAYLAND_DISPLAY") != nil
+    if x11 or wayland then
+      return "linux"
+    end
+    return "saule"
+  end
+end

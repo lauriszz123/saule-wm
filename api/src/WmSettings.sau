@@ -23,4 +23,13 @@ export extern interface WmSettings
 
   -- The system, for the About pane.
   fn about() -> SystemInfo
+
+  -- Every shortcut as it is now, by action, written as `WmOptions` writes
+  -- them; and "mod", the key they are held with ("ctrl+alt").
+  fn keys() -> table<string, string>
+
+  -- While on, every key reaches the window that has the keyboard, the
+  -- window manager's own shortcuts too: so Settings can be shown the keys
+  -- of a new shortcut. It ends when that window loses the keyboard.
+  fn recordKeys(on: boolean)
 end
