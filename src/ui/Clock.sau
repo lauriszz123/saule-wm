@@ -1,0 +1,70 @@
+-- The day and the time, the way a Mac's menu bar shows them: "Tue 4 Nov
+-- 14:05". Kept current.
+
+from uikit import BuildContext, Element, Text, View
+from Palette import Palette
+
+export class Clock extends View
+  -- `Os.date` gives the weekday ("%w", "0" is Sunday) and the month ("%m")
+  -- as numbers: their names.
+  static days: table<string, string> = {
+    ["0"]: "Sun",
+    ["1"]: "Mon",
+    ["2"]: "Tue",
+    ["3"]: "Wed",
+    ["4"]: "Thu",
+    ["5"]: "Fri",
+    ["6"]: "Sat",
+  }
+
+  static months: table<string, string> = {
+    ["01"]: "Jan",
+    ["02"]: "Feb",
+    ["03"]: "Mar",
+    ["04"]: "Apr",
+    ["05"]: "May",
+    ["06"]: "Jun",
+    ["07"]: "Jul",
+    ["08"]: "Aug",
+    ["09"]: "Sep",
+    ["10"]: "Oct",
+    ["11"]: "Nov",
+    ["12"]: "Dec",
+  }
+
+  fn init(key: string? = nil)
+    self.super(key)
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  -- Rebuild only when the minute changes, not every frame.
+  fn tick(el: Element, dt: float) -> nil
+    local now = Clock.now()
+    if now != (el.data.scratch.time as string?) then
+      el.data.scratch.time = now
+      el.markNeedsBuild()
+    end
+  end
+
+  fn body(context: BuildContext) -> View
+    local time = (context.data().scratch.time as string?) ?? Clock.now()
+    return Text(time).font(13.0).foregroundStyle(Palette.text)
+  end
+
+  static fn now() -> string
+    local day = Clock.days[Os.date("%w")] ?? ""
+    local month = Clock.months[Os.date("%m")] ?? ""
+
+    -- The day of the month without a leading zero: "4", not "04".
+    local date = Os.date("%d")
+    if String.sub(date, 1, 1) == "0" then
+      date = String.sub(date, 2)
+    end
+
+    return day .. " " .. date .. " " .. month .. "  " .. Os.date("%H:%M")
+  end
+end

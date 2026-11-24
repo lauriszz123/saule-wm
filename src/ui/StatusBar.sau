@@ -1,0 +1,32 @@
+-- The bar along the top of the screen: always there, whatever the layout.
+-- Like a Mac's menu bar it has no background of its own: the wallpaper
+-- shows through, darkened along the top edge (see `Wallpaper`).
+
+from uikit import *
+from Palette import Palette
+from Clock import Clock
+
+export class StatusBar extends View
+  -- The focused window's title, shown next to the logo.
+  title: string
+
+  fn init(title: string = "", key: string? = nil)
+    self.super(key)
+    self.title = title
+  end
+
+  fn body(context: BuildContext) -> View
+    local logo = Spacer().frame(width: 10.0, height: 10.0)
+
+    local row = HStack(spacing: 10.0) do
+      logo.background(Palette.accent, 5.0)
+      Text("Saule").font(14.0).foregroundStyle(Palette.text)
+      Text(self.title).font(13.0).foregroundStyle(Palette.dimText)
+      Spacer()
+      Clock()
+    end
+
+    local inset = EdgeInsets.symmetric(horizontal: Palette.padding)
+    return row.padding(insets: inset).frame(height: Palette.barHeight)
+  end
+end

@@ -1,0 +1,16 @@
+-- One app's window, as the window manager knows it.
+
+export class Client
+  -- The id `Compositor` knows the window by.
+  id: integer
+  title: string
+
+  -- The mouse cursor the app wants over its window.
+  cursor: string
+
+  fn init(id: integer, title: string)
+    self.id = id
+    self.title = title
+    self.cursor = "arrow"
+  end
+end

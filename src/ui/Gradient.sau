@@ -1,0 +1,24 @@
+-- Gradients the way Shine takes them: a flat list of numbers, five for
+-- each colour — where it sits from 0 to 1, then its red, green, blue and
+-- alpha.
+
+from uikit import Color
+
+export class Gradient
+  -- `colors`, spread evenly from the start to the end.
+  static fn stops(colors: table<Color>) -> table<float>
+    local stops: table<float> = {}
+    local last = (#colors - 1) as float
+
+    for i = 1, #colors do
+      local color = colors[i]
+      Table.insert(stops, ((i - 1) as float) / last)
+      Table.insert(stops, color.r)
+      Table.insert(stops, color.g)
+      Table.insert(stops, color.b)
+      Table.insert(stops, color.a)
+    end
+
+    return stops
+  end
+end

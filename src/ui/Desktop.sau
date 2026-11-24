@@ -1,0 +1,75 @@
+-- The whole screen: the wallpaper, the status bar along the top, and the
+-- apps' windows below it, tiled with a gap around each.
+
+from uikit import *
+-- `Client` too: `session.focused` is one, and its fields need the type.
+from wm import Changed, Client, Session
+from Palette import Palette
+from Wallpaper import Wallpaper
+from StatusBar import StatusBar
+from ClientWindow import ClientWindow
+
+export class Desktop extends View
+  session: Session
+  apps: table<string>
+
+  fn init(session: Session, apps: table<string>, key: string? = nil)
+    self.super(key)
+    self.session = session
+    self.apps = apps
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  -- Each frame, take in what the apps did: rebuild when windows came or
+  -- went, just repaint when only their pixels changed.
+  fn tick(el: Element, dt: float) -> nil
+    self.session.start(self.apps)
+
+    match self.session.poll()
+      case Changed.Windows then el.markNeedsBuild()
+      case Changed.Pixels then Repaint.request()
+      case Changed.Nothing then nil
+    end
+  end
+
+  fn body(context: BuildContext) -> View
+    local title = ""
+    if self.session.focused != nil then
+      title = self.session.focused!.title
+    end
+
+    local screen = VStack(alignment: StackAlignment.Fill) do
+      StatusBar(title: title)
+      Desktop.windows(self.session).padding(Palette.gap).expanded()
+    end
+
+    local shortcuts = fn(e: KeyEvent) -> boolean
+      return Desktop.shortcut(e)
+    end
+
+    local desktop = KeyboardListener(onKeyDown: shortcuts, child: screen)
+    return Wallpaper(child: desktop)
+  end
+
+  -- The window manager's own keys, whichever window has focus.
+  static fn shortcut(e: KeyEvent) -> boolean
+    if e.ctrl and e.alt and e.key == "q" then
+      App.quit()
+      return true
+    end
+    return false
+  end
+
+  -- The windows side by side, for now. Tiling and floating come here.
+  static fn windows(session: Session) -> View
+    return HStack(alignment: StackAlignment.Fill, spacing: Palette.gap) do
+      for client in session.clients do
+        ClientWindow(client, session, key: tostring(client.id)).expanded()
+      end
+    end
+  end
+end

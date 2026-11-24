@@ -1,0 +1,27 @@
+-- The window manager as a uikit app: one window, the whole screen.
+
+from uikit import *
+from wm import Session
+from ui import Desktop
+
+export class WindowManagerApp extends App
+  apps: table<string>
+
+  fn init(apps: table<string>)
+    self.super()
+    self.apps = apps
+  end
+
+  fn body() -> Scene
+    -- Key repeat off: the apps repeat held keys themselves, and repeating
+    -- here too would type everything twice.
+    return WindowGroup(
+      title: "Saule Window Manager",
+      width: 1024,
+      height: 600,
+      keyRepeat: false
+    ) do
+      Desktop(Session(), self.apps)
+    end
+  end
+end

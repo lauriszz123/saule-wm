@@ -1,0 +1,118 @@
+-- The apps' windows: which are open, and what happens to them. No drawing
+-- here; the views in `ui` show what this knows.
+
+import shine
+from Client import Client
+from Launcher import Launcher
+
+export class Session
+  -- Every window, oldest first.
+  clients: table<Client>
+
+  -- The window with the keyboard, if any.
+  focused: Client?
+
+  local started: boolean
+  local focusMoved: boolean
+
+  fn init()
+    self.clients = {}
+    self.focused = nil
+    self.started = false
+    self.focusMoved = false
+  end
+
+  -- `client` has the keyboard now (nil: nobody).
+  fn focus(client: Client?) -> nil
+    if client != self.focused then
+      self.focused = client
+      self.focusMoved = true
+    end
+  end
+
+  -- Become the display and start `apps`. Needs the window manager's own
+  -- window open first, so it runs on the first frame rather than earlier.
+  fn start(apps: table<string>) -> nil
+    if self.started then
+      return
+    end
+
+    self.started = true
+    Compositor.start()
+    Launcher.startApps(apps)
+  end
+
+  -- Take in what the apps did since last time. The answer says what the
+  -- screen needs: `Changed.Windows` when a window opened, closed or was
+  -- renamed, `Changed.Pixels` when only new frames arrived.
+  fn poll() -> Changed
+    local changed = Changed.Nothing
+    if self.focusMoved then
+      self.focusMoved = false
+      changed = Changed.Windows
+    end
+
+    for ev in Compositor.poll() do
+      match ev.kind
+        case WindowEventKind.Opened then
+          printf("wm: %s opened, id: %d\n", ev.title, ev.id)
+          Table.insert(self.clients, Client(ev.id, ev.title))
+          changed = Changed.Windows
+
+        case WindowEventKind.Closed then
+          printf("wm: window %d closed\n", ev.id)
+          if self.focused != nil and self.focused!.id == ev.id then
+            self.focused = nil
+          end
+          self.remove(ev.id)
+          changed = Changed.Windows
+
+        case WindowEventKind.Title then
+          local client = self.find(ev.id)
+          if client != nil then
+            client!.title = ev.title
+            changed = Changed.Windows
+          end
+
+        case WindowEventKind.Cursor then
+          local client = self.find(ev.id)
+          if client != nil then
+            client!.cursor = ev.cursor
+          end
+
+        case WindowEventKind.Frame then
+          if changed == Changed.Nothing then
+            changed = Changed.Pixels
+          end
+
+        case _ then nil
+      end
+    end
+
+    return changed
+  end
+
+  fn find(id: integer) -> Client?
+    for client in self.clients do
+      if client.id == id then
+        return client
+      end
+    end
+    return nil
+  end
+
+  local fn remove(id: integer) -> nil
+    for i = #self.clients, 1, -1 do
+      if self.clients[i].id == id then
+        Table.remove(self.clients, i)
+      end
+    end
+  end
+end
+
+-- What `Session.poll` found.
+export enum Changed
+  Nothing,
+  Pixels,
+  Windows
+end

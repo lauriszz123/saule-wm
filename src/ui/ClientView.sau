@@ -1,0 +1,149 @@
+-- One app's window on the screen: its pixels, with rounded corners, an
+-- outline and a soft shadow, and the mouse passed on to it. The keyboard
+-- comes through `ClientWindow`, which wraps this.
+
+import shine
+from uikit import *
+from wm import Client
+from Palette import Palette
+
+export class ClientView extends View
+  client: Client
+
+  -- What clicking gives the keyboard to: the `Focus` around this view.
+  node: FocusNode
+
+  -- Whether this window has the keyboard: its outline says so.
+  focused: boolean
+
+  fn init(client: Client, node: FocusNode, focused: boolean, key: string? = nil)
+    self.super(key)
+    self.client = client
+    self.node = node
+    self.focused = focused
+  end
+
+  -- Take all the room there is, and tell the app when that changes: the
+  -- window manager decides a window's size, the app redraws at it.
+  fn layout(el: Element, constraints: Constraints) -> Size
+    local size = constraints.biggest()
+    local w = size.width as integer
+    local h = size.height as integer
+
+    local scratch = el.data.scratch
+    local resized = w != (scratch.w as integer?) or h != (scratch.h as integer?)
+
+    if resized then
+      el.data.scratch.w = w
+      el.data.scratch.h = h
+      if w > 0 and h > 0 then
+        Compositor.configure(self.client.id, w, h)
+      end
+    end
+
+    return size
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local w = el.size.width
+    local h = el.size.height
+    local r = Palette.radius
+    local image = Compositor.image(self.client.id)
+
+    ClientView.shadow(x, y, w, h)
+
+    if image != nil then
+      -- While the app catches up with a new size, its last frame can be
+      -- bigger than the window: keep it inside.
+      Graphics.push("all")
+      Graphics.intersectScissor(x, y, w, h)
+      -- Shine tints an image with the current colour: white leaves it be.
+      Graphics.setColor(1.0, 1.0, 1.0)
+      Graphics.drawRounded(image, x, y, r)
+      Graphics.pop()
+    end
+
+    -- The outline, on the pixels just inside the edge.
+    if self.focused then
+      Palette.focusOutline.apply()
+    else
+      Palette.outline.apply()
+    end
+    Graphics.setLineWidth(1.0)
+    Graphics.rectangle("line", x + 0.5, y + 0.5, w - 1.0, h - 1.0, r)
+  end
+
+  -- A soft shadow just outside the window: rings that get fainter going
+  -- out. Two pixels, so it fits in the gap between windows.
+  static fn shadow(x: float, y: float, w: float, h: float) -> nil
+    Graphics.setLineWidth(1.0)
+
+    for i = 1, 2 do
+      local out = (i as float) - 0.5
+      local alpha = Palette.shadow / (i * i) as float
+      local r = Palette.radius + out
+      local grow = 2.0 * out
+
+      Graphics.setColor(0.0, 0.0, 0.0, alpha)
+      Graphics.rectangle("line", x - out, y - out, w + grow, h + grow, r)
+    end
+  end
+
+  -- An app's window hides what is behind it.
+  fn occludes(el: Element) -> boolean
+    return true
+  end
+
+  -- The mouse, in this window's own coordinates. A press keeps the window
+  -- hearing the mouse until it's released, even outside it.
+  fn handleEvent(
+    el: Element,
+    event: PointerEvent,
+    x: float,
+    y: float,
+    inside: boolean
+  ) -> boolean
+    local id = self.client.id
+    local data = el.data
+
+    match event.kind
+      case PointerKind.Move then
+        if inside or data.pressed then
+          Compositor.sendPointer(id, x, y)
+        end
+        if inside then
+          Cursors.request(self.client.cursor)
+        elseif data.hovered then
+          Compositor.sendLeave(id)
+        end
+        data.hovered = inside
+        return false
+
+      case PointerKind.Down then
+        if not inside then
+          return false
+        end
+        self.node.requestFocus()
+        data.pressed = true
+        Compositor.sendButton(id, event.button, true)
+        return true
+
+      case PointerKind.Up then
+        if not data.pressed then
+          return false
+        end
+        data.pressed = false
+        Compositor.sendButton(id, event.button, false)
+        return true
+
+      case PointerKind.Scroll then
+        if not inside then
+          return false
+        end
+        Compositor.sendWheel(id, event.scrollX, event.scrollY)
+        return true
+    end
+
+    return false
+  end
+end

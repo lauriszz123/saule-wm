@@ -1,0 +1,22 @@
+export class Launcher
+  static fn startApps(apps: string[])
+    println("wm: attempting to start apps...")
+
+    if #apps == 0 and Os.exists("/bin/apps") then
+      for name in Os.list("/bin/apps") do
+        Table.insert(apps, "/bin/apps/" .. name)
+      end
+    end
+
+    for app in apps do
+      printf("wm: starting %s\n", app)
+      if Os.spawn(app) == nil then
+        printf("wm: could not start %s\n", app)
+      end
+    end
+
+    if #apps == 0 then
+      println("wm: no apps started")
+    end
+  end
+end

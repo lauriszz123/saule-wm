@@ -1,0 +1,33 @@
+-- The window manager's colours and sizes, in one place.
+
+from uikit import Color
+
+export class Palette
+  -- The wallpaper: a wash from the top left corner to the bottom right,
+  -- through these three, with a warm glow up on the right.
+  static wallpaperTop: Color = Color(0.09, 0.12, 0.30)
+  static wallpaperMiddle: Color = Color(0.30, 0.20, 0.50)
+  static wallpaperBottom: Color = Color(0.85, 0.48, 0.52)
+  static glow: Color = Color(1.0, 0.70, 0.56, 0.40)
+
+  -- The status bar has no colour of its own: the wallpaper shows through,
+  -- shaded this dark at the top edge and fading out by the bar's bottom.
+  static barShade: float = 0.45
+  static text: Color = Color(1.0, 1.0, 1.0)
+  static dimText: Color = Color(1.0, 1.0, 1.0, 0.78)
+  static accent: Color = Color(0.48, 0.64, 0.97)
+
+  -- Windows: how round their corners are, their 1px outline (the accent on
+  -- the one with the keyboard), and how dark their shadow starts.
+  static radius: float = 8.0
+  static outline: Color = Color(1.0, 1.0, 1.0, 0.22)
+  static focusOutline: Color = Color(0.48, 0.64, 0.97)
+  static shadow: float = 0.25
+
+  -- Sizes.
+  static barHeight: float = 28.0
+  static padding: float = 12.0
+
+  -- Space between windows, and between them and the screen's edges.
+  static gap: float = 4.0
+end

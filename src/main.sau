@@ -1,142 +1,21 @@
 --[[
 saule-wm: the Saule Linux display server and window manager.
+
+  saule run . [app …]   start the given apps inside it
+  On Saule Linux it starts everything in /bin/apps. Ctrl+Alt+Q quits.
+
+The code is layered; each folder only uses the ones above it:
+
+    wm    what it does: the apps' windows, starting apps. No drawing.
+    ui    how it looks, as uikit views: desktop, status bar, windows
 ]]
 
-import shine
+-- `App` too: `run` is inherited from it.
+from uikit import App
+from WindowManagerApp import WindowManagerApp
 
 class Main
   static fn main()
-    Window.create(title: "Saule Window Manager")
-    local width, height = Window.getSize()
-    printf("wm: screen is now %dx%d\n", width, height)
-
-    local running = true
-    local focused = 0
-    local dirty = false
-
-    Compositor.start()
-    startApps()
-
-    while running and Window.isOpen() do
-      for ev in Compositor.poll() do
-        match ev.kind
-          case WindowEventKind.Opened then
-            printf("wm: %s opened, id: %d\n", ev.title, ev.id)
-            dirty = true
-
-            Compositor.configure(ev.id, width, height)
-            focused = Main.focus(focused, ev.id)
-
-          case WindowEventKind.Closed then
-            printf("wm: %s closed, id: %d\n", ev.title, ev.id)
-            dirty = true
-
-            if focused == ev.id then
-              focused = Main.focus(0, Main.topWindow())
-            end
-
-          case WindowEventKind.Frame then
-            dirty = true
-
-          case _ then nil
-        end
-      end
-
-      running = Main.routeInputs(focused)
-
-      if dirty then
-        Graphics.clear(.10, .11, .14)
-
-        for id in Compositor.windows() do
-          local image = Compositor.image(id)
-
-          if image != nil then
-            Graphics.draw(image, 0f, 0f)
-          end
-        end
-
-        dirty = false
-      end
-
-      Graphics.present()
-    end
-  end
-
-  static fn focus(old: integer, new: integer)
-    if old != 0 then
-      Compositor.sendFocus(old, false)
-    end
-
-    if new != 0 then
-      Compositor.sendFocus(new, true)
-    end
-
-    return new
-  end
-
-  static fn topWindow()
-    local ids = Compositor.windows()
-
-    if #ids == 0 then
-      return 0
-    end
-
-    return ids[#ids]
-  end
-
-  static fn routeInputs(to: integer)
-    for e in Event.poll() do
-      if e.kind == EventKind.KeyPressed and e.ctrl and e.alt and e.key == 'q' then
-        return false
-      end
-
-      if to == 0 then
-        continue
-      end
-
-      match e.kind
-        case EventKind.KeyPressed then
-          Compositor.sendKey(to, e.key, true, e.shift, e.ctrl, e.alt)
-
-        case EventKind.KeyReleased then
-          Compositor.sendKey(to, e.key, false, e.shift, e.ctrl, e.alt)
-
-        case EventKind.TextInput then Compositor.sendText(to, e.text)
-        case EventKind.MouseMoved then Compositor.sendPointer(to, e.x, e.y)
-
-        case EventKind.WheelMoved then Compositor.sendWheel(to, e.dx, e.dy)
-        case EventKind.MousePressed then
-          Compositor.sendButton(to, e.button, true)
-
-        case EventKind.MouseReleased then
-          Compositor.sendButton(to, e.button, false)
-
-        case _ then nil
-      end
-    end
-
-    return true
-  end
-
-  static fn startApps()
-    println("wm: attempting to start apps...")
-    local apps = Os.args()
-
-    if #apps == 0 and Os.exists("/bin/apps") then
-      for name in Os.list("/bin/apps") do
-        Table.insert(apps, "/bin/apps/" .. name)
-      end
-    end
-
-    for app in apps do
-      printf("wm: starting %s\n", app)
-      if Os.spawn(app) == nil then
-        printf("wm: could not start %s\n", app)
-      end
-    end
-
-    if #apps == 0 then
-      println("wm: no apps started")
-    end
+    WindowManagerApp(Os.args()).run()
   end
 end

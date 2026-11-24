@@ -1,0 +1,57 @@
+-- An app's window with the keyboard: what has focus here, the app gets.
+
+import shine
+from uikit import *
+from wm import Client, Session
+from ClientView import ClientView
+
+export class ClientWindow extends View
+  client: Client
+  session: Session
+
+  fn init(client: Client, session: Session, key: string? = nil)
+    self.super(key)
+    self.client = client
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local client = self.client
+    local session = self.session
+    local id = client.id
+    local node = nodeFor(context.data())
+
+    return Focus(
+      node: node,
+      wantsText: true,
+      onKeyDown: fn(e: KeyEvent) -> boolean
+        return ClientWindow.forwardKey(id, e, true)
+      end,
+      onKeyUp: fn(e: KeyEvent) -> boolean
+        return ClientWindow.forwardKey(id, e, false)
+      end,
+      onText: fn(text: string) -> boolean
+        Compositor.sendText(id, text)
+        return true
+      end,
+      onFocusChange: fn(focused: boolean)
+        Compositor.sendFocus(id, focused)
+        if focused then
+          session.focus(client)
+        end
+      end,
+      child: ClientView(self.client, node, session.focused == client)
+    )
+  end
+
+  -- Pass a key on to the app, except the window manager's own shortcuts,
+  -- which go on up to the desktop.
+  static fn forwardKey(id: integer, e: KeyEvent, down: boolean) -> boolean
+    if e.meta or (e.ctrl and e.alt) then
+      return false
+    end
+
+    Compositor.sendKey(id, e.key, down, e.shift, e.ctrl, e.alt)
+    return true
+  end
+end

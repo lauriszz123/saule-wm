@@ -1,0 +1,86 @@
+-- The picture behind everything: a soft gradient across the screen, shaded
+-- darker along the top, behind the status bar.
+--
+-- Working a gradient out over the whole screen takes a netbook a good part
+-- of a frame, so it's drawn once into an image, and again only when the
+-- screen changes size. Each frame just copies that image.
+
+import shine
+from uikit import *
+from Palette import Palette
+from Gradient import Gradient
+
+export class Wallpaper extends SingleChildView
+  fn init(child: View? = nil, key: string? = nil)
+    self.super(child, key)
+  end
+
+  -- The whole screen, and whatever is on it on top.
+  fn layout(el: Element, constraints: Constraints) -> Size
+    local size = constraints.biggest()
+    local child = el.childAt(1)
+
+    if child != nil then
+      child!.layout(Constraints.tight(size))
+      child!.offset = Offset.zero()
+    end
+
+    return size
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local w = el.size.width as integer
+    local h = el.size.height as integer
+    local scratch = el.data.scratch
+    local image = scratch.image as Canvas?
+
+    if image == nil or w != (scratch.w as integer?) or h != (scratch.h as integer?) then
+      image = Wallpaper.render(w, h)
+      scratch.image = image
+      scratch.w = w
+      scratch.h = h
+    end
+
+    -- Shine tints an image with the current colour: white leaves it be.
+    Graphics.setColor(1.0, 1.0, 1.0)
+    Graphics.draw(image!, x, y)
+    el.paintChildren(x, y)
+  end
+
+  -- Draw the wallpaper into a new image of `w` by `h`.
+  static fn render(w: integer, h: integer) -> Canvas
+    local image = Graphics.newCanvas(w, h)
+    local screen = Graphics.getCanvas()
+
+    -- Start from a clean slate: no transform or clip from the views around.
+    Graphics.push("all")
+    Graphics.origin()
+    Graphics.setScissor()
+    Graphics.setCanvas(image)
+
+    local fw = w as float
+    local fh = h as float
+    local top = Palette.wallpaperTop
+    local middle = Palette.wallpaperMiddle
+    local bottom = Palette.wallpaperBottom
+    local wash = Gradient.stops({top, middle, bottom})
+    Graphics.setLinearGradient(0.0, 0.0, fw, fh, wash)
+    Graphics.rectangle("fill", 0.0, 0.0, fw, fh)
+
+    local glow = Gradient.stops({Palette.glow, Palette.glow.withAlpha(0.0)})
+    Graphics.setRadialGradient(fw * 0.85, fh * 0.15, fw * 0.55, glow)
+    Graphics.rectangle("fill", 0.0, 0.0, fw, fh)
+
+    -- The status bar's shade: dark at the top edge, gone by its bottom.
+    local bar = Palette.barHeight
+    local dark = Color(0.0, 0.0, 0.0, Palette.barShade)
+    local shade = Gradient.stops({dark, dark.withAlpha(0.0)})
+    Graphics.setLinearGradient(0.0, 0.0, 0.0, bar, shade)
+    Graphics.rectangle("fill", 0.0, 0.0, fw, bar)
+    Graphics.clearGradient()
+
+    Graphics.setCanvas(screen)
+    Graphics.pop()
+    return image
+  end
+end
