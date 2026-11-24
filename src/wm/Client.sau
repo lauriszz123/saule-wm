@@ -1,6 +1,19 @@
 -- One app's window, as the window manager knows it.
 
+from Direction import Direction
+from Split import Split
+
 export class Client
+  -- How far one Super+Shift+arrow moves a floating window, in pixels.
+  static nudge: float = 32.0
+
+  -- How much one arrow key in resize mode grows or shrinks a floating
+  -- window, in pixels.
+  static resizeStep: float = 24.0
+
+  -- The smallest a floating window can be made, its app's part.
+  static smallest: float = 120.0
+
   -- The id `Compositor` knows the window by.
   id: integer
   title: string
@@ -11,10 +24,70 @@ export class Client
   -- The workspace it's on, by number.
   workspace: integer
 
-  fn init(id: integer, title: string, workspace: integer)
+  -- Whether its app lets it be resized. One that doesn't (an About box)
+  -- floats from the start, at the size it asked for.
+  resizable: boolean
+
+  -- Over the tiled windows, at a place and size of its own, rather than in
+  -- the workspace's tree.
+  floating: boolean
+
+  -- Where a floating window is: the top left of its title bar, from the
+  -- top left of the area the windows share.
+  x: float
+  y: float
+
+  -- The size of a floating window's app part, below its title bar. It
+  -- starts as the size the app asked for.
+  width: float
+  height: float
+
+  -- Whether a floating window has been put anywhere yet: it is centred on
+  -- the screen the first time it shows (see `FloatingLayer`).
+  placed: boolean
+
+  fn init(
+    id: integer,
+    title: string,
+    workspace: integer,
+    width: float = 640.0,
+    height: float = 480.0,
+    resizable: boolean = true
+  )
     self.id = id
     self.title = title
     self.cursor = "arrow"
     self.workspace = workspace
+    self.resizable = resizable
+    self.floating = not resizable
+    self.x = 0.0
+    self.y = 0.0
+    self.width = Math.max(width, Client.smallest)
+    self.height = Math.max(height, Client.smallest)
+    self.placed = false
+  end
+
+  -- Move a floating window a step the `direction` way.
+  fn nudgeToward(direction: Direction) -> nil
+    local step = Client.nudge * (direction.step() as float)
+    if direction.axis() == Split.Horizontal then
+      self.x += step
+    else
+      self.y += step
+    end
+  end
+
+  -- Grow a floating window a step, as resize mode does for a tiled one:
+  -- Right and Down grow it, Left and Up shrink it. Its top left stays.
+  fn resizeToward(direction: Direction) -> nil
+    if not self.resizable then
+      return
+    end
+    local step = Client.resizeStep * (direction.step() as float)
+    if direction.axis() == Split.Horizontal then
+      self.width = Math.max(self.width + step, Client.smallest)
+    else
+      self.height = Math.max(self.height + step, Client.smallest)
+    end
   end
 end

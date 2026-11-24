@@ -1,0 +1,80 @@
+-- A floating window's title bar, as a Mac draws one: close, minimise and
+-- zoom on the left, the title in the middle. Dragging it moves the window
+-- (see `FloatingWindow`, which gives it `mover`); pressing it gives the
+-- window the keyboard.
+--
+-- Zoom tiles the window, as Super+Shift+Space does; a window of a fixed
+-- size (About) can't be tiled, so on it zoom stays grey. Minimise has
+-- nowhere to put a window yet, so it stays grey.
+
+from uikit import *
+from wm import Client, Session
+from Palette import Palette
+from WindowButton import WindowButton
+
+export class TitleBar extends View
+  client: Client
+  session: Session
+
+  -- What dragging the bar does: a `DragArea` behind everything on it.
+  mover: View
+
+  fn init(client: Client, session: Session, mover: View, key: string? = nil)
+    self.super(key)
+    self.client = client
+    self.session = session
+    self.mover = mover
+  end
+
+  fn body(context: BuildContext) -> View
+    local client = self.client
+    local session = self.session
+    local lit = session.focused == client
+
+    local close = fn()
+      session.close(client)
+    end
+    local nothing = fn()
+    end
+    local tile = fn()
+      session.toggleFloating(client)
+    end
+    local size = Palette.buttonSize
+    local hide = Palette.minimiseButton
+    local buttons = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+      show(TitleBar.button(Palette.closeButton, "close", lit, true, close))
+      show(TitleBar.button(hide, "minimise", lit, false, nothing))
+      show(
+        TitleBar.button(Palette.zoomButton, "zoom", lit, client.resizable, tile)
+      )
+    end
+
+    local colour = Palette.titleText
+    if not lit then
+      colour = Palette.dimText.withAlpha(0.5)
+    end
+    -- Clear of the buttons on both sides, so a long title stays centred.
+    local title = Text(client.title).font(13.0).foregroundStyle(colour)
+    local inset = EdgeInsets.symmetric(horizontal: 76.0)
+    local middle = title.lineLimit(1).padding(insets: inset)
+
+    local top = (Palette.titleHeight - size) / 2.0
+    return ZStack(alignment: Alignment.center()) do
+      show(self.mover)
+      show(middle)
+      Positioned(left: 10.0, top: top, child: buttons)
+    end
+  end
+
+  static fn button(
+    colour: Color,
+    mark: string,
+    lit: boolean,
+    enabled: boolean,
+    press: fn() -> nil
+  ) -> View
+    local size = Palette.buttonSize
+    local button = WindowButton(colour, mark, lit, enabled, press)
+    return button.frame(width: size, height: size)
+  end
+end

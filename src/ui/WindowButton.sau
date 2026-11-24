@@ -1,0 +1,112 @@
+-- One of the three round buttons on a floating window's title bar, as a
+-- Mac's: close, minimise, zoom. Coloured on the window with the keyboard
+-- and under the pointer, grey otherwise; under the pointer it shows what
+-- it does. One that can't be used now stays grey and does nothing.
+
+import shine
+from uikit import *
+from Palette import Palette
+
+export class WindowButton extends View
+  colour: Color
+
+  -- What it does, drawn on it under the pointer: "close" (×), "minimise"
+  -- (−) or "zoom" (+).
+  mark: string
+
+  -- Its window has the keyboard.
+  lit: boolean
+
+  enabled: boolean
+  onPress: fn() -> nil
+
+  fn init(
+    colour: Color,
+    mark: string,
+    lit: boolean,
+    enabled: boolean,
+    onPress: fn() -> nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.colour = colour
+    self.mark = mark
+    self.lit = lit
+    self.enabled = enabled
+    self.onPress = onPress
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local s = Math.min(el.size.width, el.size.height)
+    local cx = x + el.size.width / 2.0
+    local cy = y + el.size.height / 2.0
+    local hovered = el.data.hovered and self.enabled
+
+    if self.enabled and (self.lit or hovered) then
+      self.colour.apply()
+    else
+      Palette.idleButton.apply()
+    end
+    Graphics.circle("fill", cx, cy, s / 2.0)
+
+    if not hovered then
+      return
+    end
+    -- The mark, dark, about half the button across.
+    local d = s * 0.22
+    Graphics.setColor(0.0, 0.0, 0.0, 0.55)
+    Graphics.setLineWidth(Math.max(s * 0.11, 1.0))
+    match self.mark
+      case "close" then
+        Graphics.line(cx - d, cy - d, cx + d, cy + d)
+        Graphics.line(cx - d, cy + d, cx + d, cy - d)
+      case "minimise" then Graphics.line(cx - d * 1.3, cy, cx + d * 1.3, cy)
+      case _ then
+        Graphics.line(cx - d * 1.3, cy, cx + d * 1.3, cy)
+        Graphics.line(cx, cy - d * 1.3, cx, cy + d * 1.3)
+    end
+  end
+
+  -- Pressed and let go over it, it does what it does.
+  fn handleEvent(
+    el: Element,
+    event: PointerEvent,
+    x: float,
+    y: float,
+    inside: boolean
+  ) -> boolean
+    local data = el.data
+    match event.kind
+      case PointerKind.Move then
+        if inside != data.hovered then
+          data.hovered = inside
+          Repaint.request()
+        end
+        return false
+
+      case PointerKind.Down then
+        if not inside then
+          return false
+        end
+        data.pressed = true
+        return true
+
+      case PointerKind.Up then
+        if not data.pressed then
+          return false
+        end
+        data.pressed = false
+        if inside and self.enabled then
+          self.onPress()
+        end
+        return true
+
+      case _ then
+        return false
+    end
+  end
+end

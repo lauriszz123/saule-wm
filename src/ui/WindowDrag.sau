@@ -1,0 +1,28 @@
+-- A floating window being dragged (see `FloatingWindow`): where the
+-- pointer was pressed, and where the window was and how big then. Every
+-- move works the window out again from these, so it never drifts.
+
+export class WindowDrag
+  startX: float
+  startY: float
+  x: float
+  y: float
+  width: float
+  height: float
+
+  fn init(
+    startX: float,
+    startY: float,
+    x: float,
+    y: float,
+    width: float,
+    height: float
+  )
+    self.startX = startX
+    self.startY = startY
+    self.x = x
+    self.y = y
+    self.width = width
+    self.height = height
+  end
+end

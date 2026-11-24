@@ -1,5 +1,6 @@
--- One screenful of windows, tiled i3-style: a tree of splits (see `Node`),
--- and the window in it with the keyboard.
+-- One screenful of windows: the tiled ones, i3-style, in a tree of splits
+-- (see `Node`); the floating ones over them, each at a place of its own;
+-- and the window with the keyboard, of either kind.
 --
 -- A window opened or closed changes only the split it is in: the new place
 -- takes the old one's weight, so nothing else on screen moves.
@@ -13,8 +14,11 @@ export class Workspace
   -- What the status bar calls it: 1, 2, …
   number: integer
 
-  -- The layout; nil while there are no windows.
+  -- The tiled windows' layout; nil while there are none.
   root: Node?
+
+  -- The floating windows, bottom to top: the last is in front.
+  floating: table<Client>
 
   -- The window with the keyboard while this workspace is on screen.
   focused: Client?
@@ -22,21 +26,31 @@ export class Workspace
   fn init(number: integer)
     self.number = number
     self.root = nil
+    self.floating = {}
     self.focused = nil
   end
 
   fn isEmpty() -> boolean
-    return self.root == nil
+    return self.root == nil and #self.floating == 0
   end
 
   fn has(client: Client) -> boolean
-    return self.find(client) != nil
+    return self.find(client) != nil or self.floatIndex(client) > 0
   end
 
-  -- Add a window next to the focused one. If that one's split already runs
-  -- the `split` way, the new window joins it, just after; if not, the
-  -- focused window becomes a new `split`, holding it and the new one.
+  -- Add a window, with the keyboard. A floating one goes in front of the
+  -- others. A tiled one goes next to the focused window: if that one's
+  -- split already runs the `split` way, the new window joins it, just
+  -- after; if not, the focused window becomes a new `split`, holding it
+  -- and the new one. With a floating window focused, it goes next to the
+  -- last tiled window.
   fn add(client: Client, split: Split) -> nil
+    if client.floating then
+      Table.insert(self.floating, client)
+      self.focused = client
+      return
+    end
+
     local window = Node.window(client)
     local root = self.root
     local focused = self.focused
@@ -67,9 +81,20 @@ export class Workspace
     box.insert(window)
   end
 
-  -- Take a window out. The one that takes its place gets the keyboard, and
-  -- a split left holding one thing is replaced by that thing.
+  -- Take a window out. A tiled one's place goes to the one next to it,
+  -- which gets the keyboard, and a split left holding one thing is
+  -- replaced by that thing. After a floating one, the keyboard goes to the
+  -- floating window now in front, or to the tiled ones when there's none.
   fn remove(client: Client) -> nil
+    local index = self.floatIndex(client)
+    if index > 0 then
+      Table.remove(self.floating, index)
+      if self.focused == client then
+        self.focused = self.front()
+      end
+      return
+    end
+
     local node = self.find(client)
     if node == nil then
       return
@@ -78,7 +103,9 @@ export class Workspace
     local parent = node!.parent
     if parent == nil then
       self.root = nil
-      self.focused = nil
+      if self.focused == client then
+        self.focused = self.front()
+      end
       return
     end
 
@@ -95,12 +122,36 @@ export class Workspace
     end
   end
 
+  -- Float a tiled window, or tile a floating one; it keeps the keyboard.
+  -- Floated, it is centred at the size it had floating last, or its app
+  -- asked for; tiled, it goes in as a new window would (see `add`).
+  fn toggleFloating(client: Client, split: Split) -> nil
+    self.remove(client)
+    client.floating = not client.floating
+    client.placed = false
+    self.add(client, split)
+  end
+
+  -- Bring a floating window in front of the others.
+  fn raise(client: Client) -> nil
+    local index = self.floatIndex(client)
+    if index > 0 and index < #self.floating then
+      Table.remove(self.floating, index)
+      Table.insert(self.floating, client)
+    end
+  end
+
   -- The window next to `client` the `direction` way, i3-style: go up the
   -- tree to the first split running that way with something on that side,
-  -- then into it, to the window nearest.
+  -- then into it, to the window nearest. From a floating window, the way
+  -- leads down to the tiled ones: the first of them.
   fn neighbour(client: Client, direction: Direction) -> Client?
     local node = self.find(client)
     if node == nil then
+      local root = self.root
+      if client.floating and root != nil then
+        return root!.firstWindow().client
+      end
       return nil
     end
 
@@ -176,14 +227,31 @@ export class Workspace
     end
   end
 
-  -- Every window here, in order.
+  -- Every window here: the tiled ones in order, then the floating ones
+  -- from the back.
   fn clients() -> table<Client>
     local out: table<Client> = {}
     local root = self.root
     if root != nil then
       Workspace.collect(root!, out)
     end
+    for client in self.floating do
+      Table.insert(out, client)
+    end
     return out
+  end
+
+  -- The window that should have the keyboard when the focused one goes:
+  -- the floating window in front, or else the first tiled one.
+  fn front() -> Client?
+    if #self.floating > 0 then
+      return self.floating[#self.floating]
+    end
+    local root = self.root
+    if root != nil then
+      return root!.firstWindow().client
+    end
+    return nil
   end
 
   fn find(client: Client) -> Node?
@@ -192,6 +260,16 @@ export class Workspace
       return nil
     end
     return root!.find(client)
+  end
+
+  -- Where `client` is among the floating windows, or 0 when it isn't one.
+  local fn floatIndex(client: Client) -> integer
+    for i = 1, #self.floating do
+      if self.floating[i] == client then
+        return i
+      end
+    end
+    return 0
   end
 
   -- Put `new` where `old` is, with its weight: the rest of the split

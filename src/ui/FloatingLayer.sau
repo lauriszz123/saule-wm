@@ -1,0 +1,106 @@
+-- The floating windows of the workspace on screen, over the tiled ones:
+-- each where its client says and at its size, the front one last, so it
+-- is drawn last and asked first about the pointer.
+--
+-- It reads the places as it lays out, not as it is built, so dragging a
+-- window only lays out again. A window not placed yet is centred, a
+-- little above the middle as a Mac puts a new window. And every window is
+-- kept where it can be reached: its title bar on screen, with enough of
+-- it to grab either side.
+
+from uikit import *
+from wm import Client, Session
+from Palette import Palette
+from FloatingWindow import FloatingWindow
+
+export class FloatingLayer extends View
+  -- How much of a window's title bar always stays on screen.
+  static reach: float = 80.0
+
+  clients: table<Client>
+  children: table<View>
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.clients = {}
+    local windows: table<View> = {}
+    for client in session.workspace().floating do
+      Table.insert(self.clients, client)
+      local id = tostring(client.id)
+      Table.insert(windows, FloatingWindow(client, session, key: id))
+    end
+    self.children = claimedAll(windows)
+  end
+
+  fn childViews() -> table<View>
+    return self.children
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    local size = constraints.biggest()
+    -- The room there was last time: a screen getting smaller (the window
+    -- the window manager is nested in, resized) takes the windows on it
+    -- along, rather than leaving them hanging off its edge.
+    local scratch = el.data.scratch
+    local wasWidth = (scratch.width as float?) ?? size.width
+    local wasHeight = (scratch.height as float?) ?? size.height
+    scratch.width = size.width
+    scratch.height = size.height
+    for i = 1, #self.clients do
+      local client = self.clients[i]
+      FloatingLayer.follow(client, Size(wasWidth, wasHeight), size)
+      FloatingLayer.fit(client, size)
+
+      local child = el.childAt(i)
+      if child != nil then
+        local frame = Size(client.width, client.height + Palette.titleHeight)
+        child!.layout(Constraints.tight(frame))
+        child!.offset = Offset(client.x, client.y)
+      end
+    end
+    return size
+  end
+
+  -- The room went from `was` to `room`: a window that was all inside it
+  -- along a side that shrank is moved to be all inside it still, as far as
+  -- it fits.
+  static fn follow(client: Client, was: Size, room: Size) -> nil
+    if not client.placed then
+      return
+    end
+    local bar = Palette.titleHeight
+    local right = client.x + client.width
+    if room.width < was.width and client.x >= 0.0 and right <= was.width then
+      client.x = Math.max(Math.min(client.x, room.width - client.width), 0.0)
+    end
+    local bottom = client.y + client.height + bar
+    if room.height < was.height and bottom <= was.height then
+      local lowest = room.height - client.height - bar
+      client.y = Math.max(Math.min(client.y, lowest), 0.0)
+    end
+  end
+
+  -- Keep `client` inside `room`: no bigger than it, placed if it wasn't,
+  -- and with its title bar where the pointer can get at it. Whole pixels,
+  -- so the app's pixels land on the screen's.
+  static fn fit(client: Client, room: Size) -> nil
+    local bar = Palette.titleHeight
+    local width = Math.min(client.width, room.width)
+    client.width = Math.floor(width) as float
+    local height = Math.min(client.height, room.height - bar)
+    client.height = Math.floor(height) as float
+
+    if not client.placed then
+      client.placed = true
+      local spare = room.height - client.height - bar
+      client.x = (room.width - client.width) / 2.0
+      client.y = spare * 0.4
+    end
+
+    local reach = Math.min(FloatingLayer.reach, client.width)
+    local x = Math.clamp(client.x, reach - client.width, room.width - reach)
+    local y = Math.clamp(client.y, 0.0, Math.max(room.height - bar, 0.0))
+    client.x = Math.floor(x) as float
+    client.y = Math.floor(y) as float
+  end
+end

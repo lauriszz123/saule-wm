@@ -1,0 +1,73 @@
+-- Something the pointer drags: a floating window's title bar, which moves
+-- the window, or its corner, which resizes it. It draws nothing, and does
+-- nothing with the drag: it says where the pointer was pressed and where it
+-- is as it moves, in the window manager's own coordinates, so the two
+-- compare. Each is given this area's element.
+
+from uikit import *
+
+export class DragArea extends View
+  -- The pointer's look over it and while dragging: "arrow" to leave it be.
+  cursor: string
+
+  onStart: fn(Element, float, float) -> nil
+  onMove: fn(Element, float, float) -> nil
+
+  fn init(
+    cursor: string,
+    onStart: fn(Element, float, float) -> nil,
+    onMove: fn(Element, float, float) -> nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.cursor = cursor
+    self.onStart = onStart
+    self.onMove = onMove
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn handleEvent(
+    el: Element,
+    event: PointerEvent,
+    x: float,
+    y: float,
+    inside: boolean
+  ) -> boolean
+    -- `data.dragging` is uikit's own flag for "keep telling this element
+    -- about the pointer", so a fast move that outruns it still arrives.
+    local data = el.data
+    local dragging = data.dragging
+
+    match event.kind
+      case PointerKind.Move then
+        if dragging then
+          self.onMove(el, event.x, event.y)
+        end
+        if (dragging or inside) and self.cursor != "arrow" then
+          Cursors.request(self.cursor)
+        end
+        return false
+
+      case PointerKind.Down then
+        if not inside then
+          return false
+        end
+        data.dragging = true
+        self.onStart(el, event.x, event.y)
+        return true
+
+      case PointerKind.Up then
+        if not dragging then
+          return false
+        end
+        data.dragging = false
+        return true
+
+      case _ then
+        return false
+    end
+  end
+end

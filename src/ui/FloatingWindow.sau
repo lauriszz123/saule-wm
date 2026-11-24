@@ -1,0 +1,143 @@
+-- A floating window: its title bar over the app's pixels, as one rounded
+-- card with an outline and a deep, soft shadow. Dragging the title bar
+-- moves it; dragging its bottom right corner resizes it, when its app
+-- lets it be resized.
+--
+-- Where it is and how big are the client's (`Client.x`, `width`, …), which
+-- `FloatingLayer` reads as it lays the windows out. A drag changes them
+-- and asks for a layout again; nothing is rebuilt.
+
+import shine
+from uikit import *
+from wm import Client, Session
+from Palette import Palette
+from ClientWindow import ClientWindow
+from DragArea import DragArea
+from TitleBar import TitleBar
+from WindowDrag import WindowDrag
+
+export class FloatingWindow extends View
+  client: Client
+  session: Session
+
+  -- How big the corner that resizes it is.
+  static corner: float = 16.0
+
+  fn init(client: Client, session: Session, key: string? = nil)
+    self.super(key)
+    self.client = client
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local client = self.client
+    local session = self.session
+
+    local title = TitleBar(client, session, self.drag("arrow", false))
+    local bar = title.frame(height: Palette.titleHeight)
+    local app = ClientWindow(client, session, decorated: true)
+    local window = VStack(alignment: StackAlignment.Fill) do
+      show(bar)
+      app.expanded()
+    end
+
+    local layers: table<View> = {
+      Positioned(left: 0.0, top: 0.0, right: 0.0, bottom: 0.0, child: window),
+    }
+    if client.resizable then
+      local size = FloatingWindow.corner
+      local corner = self.drag("resizeall", true)
+      local at = Positioned(right: 0.0, bottom: 0.0, child: corner)
+      Table.insert(layers, at.frame(width: size, height: size))
+    end
+    return ZStack(children: layers)
+  end
+
+  -- The card behind the title bar, then the bar and the app, then the
+  -- outline over the edge of it all: the accent on the window with the
+  -- keyboard.
+  fn paint(el: Element, x: float, y: float) -> nil
+    local w = el.size.width
+    local h = el.size.height
+    local r = Palette.radius
+
+    FloatingWindow.shadow(x, y, w, h)
+
+    -- Down past the bar by a corner's height, under the app's square top.
+    Palette.titleBar.apply()
+    Graphics.rectangle("fill", x, y, w, Palette.titleHeight + r, r)
+
+    el.paintChildren(x, y)
+
+    if self.session.focused == self.client then
+      Palette.focusOutline.apply()
+    else
+      Palette.outline.apply()
+    end
+    Graphics.setLineWidth(1.0)
+    Graphics.rectangle("line", x + 0.5, y + 0.5, w - 1.0, h - 1.0, r)
+  end
+
+  -- A floating window hides what is behind it, title bar and all.
+  fn occludes(el: Element) -> boolean
+    return true
+  end
+
+  -- What dragging the title bar (`resizing` false) or the corner (true)
+  -- does. Pressing either gives the window the keyboard.
+  local fn drag(cursor: string, resizing: boolean) -> View
+    local client = self.client
+    local session = self.session
+
+    local start = fn(el: Element, x: float, y: float)
+      if session.focused != client then
+        session.focus(client)
+      end
+      el.data.scratch.drag = WindowDrag(
+        x,
+        y,
+        client.x,
+        client.y,
+        client.width,
+        client.height
+      )
+    end
+
+    local move = fn(el: Element, x: float, y: float)
+      local drag = el.data.scratch.drag as WindowDrag?
+      if drag == nil then
+        return
+      end
+      local dx = x - drag!.startX
+      local dy = y - drag!.startY
+      if resizing then
+        client.width = Math.max(drag!.width + dx, Client.smallest)
+        client.height = Math.max(drag!.height + dy, Client.smallest)
+      else
+        client.x = drag!.x + dx
+        client.y = drag!.y + dy
+      end
+      el.markNeedsLayout()
+      Repaint.request()
+    end
+
+    return DragArea(cursor, start, move)
+  end
+
+  -- A soft shadow round the window, a little lower than it, as light from
+  -- above would cast: rings that get fainter going out.
+  static fn shadow(x: float, y: float, w: float, h: float) -> nil
+    local rings = 8
+    Graphics.setLineWidth(1.0)
+    for i = 1, rings do
+      local out = (i as float) - 0.5
+      local fade = 1.0 - ((i - 1) as float) / (rings as float)
+      local alpha = Palette.floatShadow * fade * fade / 3.0
+      local r = Palette.radius + out
+      local grow = 2.0 * out
+
+      Graphics.setColor(0.0, 0.0, 0.0, alpha)
+      Graphics.rectangle("line", x - out, y - out + 2.0, w + grow, h + grow, r)
+    end
+  end
+end

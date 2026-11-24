@@ -16,11 +16,29 @@ export class ClientView extends View
   -- Whether this window has the keyboard: its outline says so.
   focused: boolean
 
-  fn init(client: Client, node: FocusNode, focused: boolean, key: string? = nil)
+  -- Under a floating window's title bar, in its frame (see
+  -- `FloatingWindow`), which draws the outline and the shadow: the pixels
+  -- only, square at the top where they meet the bar, round at the bottom.
+  decorated: boolean
+
+  -- The pointer moving onto the window gives it the keyboard, without a
+  -- click (Settings' "focus follows the pointer").
+  follows: boolean
+
+  fn init(
+    client: Client,
+    node: FocusNode,
+    focused: boolean,
+    decorated: boolean = false,
+    follows: boolean = false,
+    key: string? = nil
+  )
     self.super(key)
     self.client = client
     self.node = node
     self.focused = focused
+    self.decorated = decorated
+    self.follows = follows
   end
 
   -- Take all the room there is, and tell the app when that changes: the
@@ -50,7 +68,9 @@ export class ClientView extends View
     local r = Palette.radius
     local image = Compositor.image(self.client.id)
 
-    ClientView.shadow(x, y, w, h)
+    if not self.decorated then
+      ClientView.shadow(x, y, w, h)
+    end
 
     if image != nil then
       -- While the app catches up with a new size, its last frame can be
@@ -59,8 +79,16 @@ export class ClientView extends View
       Graphics.intersectScissor(x, y, w, h)
       -- Shine tints an image with the current colour: white leaves it be.
       Graphics.setColor(1.0, 1.0, 1.0)
-      Graphics.drawRounded(image, x, y, r)
+      if self.decorated then
+        ClientView.squareTop(image!, x, y, w, h, r)
+      else
+        Graphics.drawRounded(image!, x, y, r)
+      end
       Graphics.pop()
+    end
+
+    if self.decorated then
+      return
     end
 
     -- The outline, on the pixels just inside the edge.
@@ -71,6 +99,26 @@ export class ClientView extends View
     end
     Graphics.setLineWidth(1.0)
     Graphics.rectangle("line", x + 0.5, y + 0.5, w - 1.0, h - 1.0, r)
+  end
+
+  -- The app's pixels with only the bottom corners round: the top half
+  -- drawn as it is, the bottom half rounded, each clipped to its half, so
+  -- every pixel is still drawn once. Shine rounds all four corners or none.
+  static fn squareTop(
+    image: Image,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    r: float
+  ) -> nil
+    local half = Math.floor(h / 2.0) as float
+    Graphics.push("all")
+    Graphics.intersectScissor(x, y, w, half)
+    Graphics.draw(image, x, y)
+    Graphics.pop()
+    Graphics.intersectScissor(x, y + half, w, h - half)
+    Graphics.drawRounded(image, x, y, r)
   end
 
   -- A soft shadow just outside the window: rings that get fainter going
@@ -113,6 +161,9 @@ export class ClientView extends View
         end
         if inside then
           Cursors.request(self.client.cursor)
+          if self.follows and not self.focused then
+            self.node.requestFocus()
+          end
         elseif data.hovered then
           Compositor.sendLeave(id)
         end
