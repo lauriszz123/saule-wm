@@ -1,0 +1,8 @@
+-- A way to move on the screen: what the arrow keys pick between.
+
+export enum Direction
+  Left,
+  Right,
+  Up,
+  Down
+end

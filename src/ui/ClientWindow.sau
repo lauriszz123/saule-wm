@@ -1,4 +1,6 @@
 -- An app's window with the keyboard: what has focus here, the app gets.
+-- The keyboard follows the session: when a shortcut gives a window the
+-- keyboard, this takes it.
 
 import shine
 from uikit import *
@@ -13,6 +15,25 @@ export class ClientWindow extends View
     self.super(key)
     self.client = client
     self.session = session
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  -- Take the keyboard when the session says this window has it. A window
+  -- just put on screen isn't ready to take it on its first frame, so this
+  -- asks each frame until it has it, rather than once.
+  fn tick(el: Element, dt: float) -> nil
+    if self.session.focused != self.client then
+      return
+    end
+
+    local node = nodeFor(el.data)
+    if not node.hasFocus() then
+      node.requestFocus()
+    end
   end
 
   fn body(context: BuildContext) -> View
@@ -31,10 +52,20 @@ export class ClientWindow extends View
         return ClientWindow.forwardKey(id, e, false)
       end,
       onText: fn(text: string) -> boolean
+        -- Typed with Super held, it was a shortcut (Super+Shift+2 types
+        -- "@"): not the app's.
+        if Keyboard.isAnyDown({"lgui", "rgui"}) then
+          return false
+        end
         Compositor.sendText(id, text)
         return true
       end,
       onFocusChange: fn(focused: boolean)
+        -- A window that has just closed loses the keyboard too, and
+        -- `Compositor` has no window left to tell.
+        if session.find(id) == nil then
+          return
+        end
         Compositor.sendFocus(id, focused)
         if focused then
           session.focus(client)

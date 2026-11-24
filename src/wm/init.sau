@@ -1,6 +1,10 @@
--- wm — what the window manager does: the apps' windows, and starting apps.
--- Nothing here draws.
+-- wm — what the window manager does: the apps' windows, how they're laid
+-- out on workspaces, and starting apps. Nothing here draws.
 
+export from Split import *
+export from Direction import *
 export from Client import *
+export from Node import *
+export from Workspace import *
 export from Launcher import *
 export from Session import *

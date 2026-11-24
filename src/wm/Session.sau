@@ -1,32 +1,123 @@
--- The apps' windows: which are open, and what happens to them. No drawing
--- here; the views in `ui` show what this knows.
+-- The apps' windows: which are open, which workspace each is on, and what
+-- happens to them. No drawing here; the views in `ui` show what this knows.
 
 import shine
 from Client import Client
+from Direction import Direction
 from Launcher import Launcher
+from Split import Split
+from Workspace import Workspace
 
 export class Session
-  -- Every window, oldest first.
+  -- How many workspaces there are.
+  static count: integer = 4
+
+  -- Every window, oldest first, whatever its workspace.
   clients: table<Client>
 
-  -- The window with the keyboard, if any.
+  workspaces: table<Workspace>
+
+  -- The workspace on screen, by number.
+  current: integer
+
+  -- The window with the keyboard, if any: the focused one of the
+  -- workspace on screen.
   focused: Client?
 
+  -- Which way the next window splits the focused one.
+  split: Split
+
   local started: boolean
-  local focusMoved: boolean
+
+  -- Something the screen shows changed, apart from the apps' pixels.
+  local changed: boolean
 
   fn init()
     self.clients = {}
+    self.workspaces = {}
+    for number = 1, Session.count do
+      Table.insert(self.workspaces, Workspace(number))
+    end
+    self.current = 1
     self.focused = nil
+    self.split = Split.Horizontal
     self.started = false
-    self.focusMoved = false
+    self.changed = false
   end
 
-  -- `client` has the keyboard now (nil: nobody).
+  -- The workspace on screen.
+  fn workspace() -> Workspace
+    return self.workspaces[self.current]
+  end
+
+  -- `client` has the keyboard now: it was clicked.
   fn focus(client: Client?) -> nil
-    if client != self.focused then
-      self.focused = client
-      self.focusMoved = true
+    if client != nil then
+      self.workspaces[client!.workspace].focused = client
+    end
+    self.sync()
+  end
+
+  -- Give the keyboard to the window next to the focused one.
+  fn focusToward(direction: Direction) -> nil
+    local client = self.focused
+    if client == nil then
+      return
+    end
+
+    local workspace = self.workspace()
+    local next = workspace.neighbour(client!, direction)
+    if next != nil then
+      workspace.focused = next
+      self.sync()
+    end
+  end
+
+  -- Swap the focused window with the one next to it.
+  fn moveToward(direction: Direction) -> nil
+    local client = self.focused
+    if client != nil then
+      self.workspace().move(client!, direction)
+      self.sync()
+    end
+  end
+
+  -- Say which way the next window splits the focused one.
+  fn splitNext(split: Split) -> nil
+    self.split = split
+    self.sync()
+  end
+
+  -- Put workspace `number` on screen.
+  fn show(number: integer) -> nil
+    if number >= 1 and number <= Session.count then
+      self.current = number
+      self.sync()
+    end
+  end
+
+  -- Send the focused window to workspace `number`; this one stays on
+  -- screen.
+  fn sendTo(number: integer) -> nil
+    local client = self.focused
+    if client == nil or number < 1 or number > Session.count then
+      return
+    end
+    if number == self.current then
+      return
+    end
+
+    self.workspace().remove(client!)
+    self.workspaces[number].add(client!, self.split)
+    client!.workspace = number
+    self.sync()
+  end
+
+  -- Ask the focused window's app to close it.
+  fn close() -> nil
+    local client = self.focused
+    if client != nil then
+      Compositor.requestClose(client!.id)
     end
   end
 
@@ -43,12 +134,13 @@ export class Session
   end
 
   -- Take in what the apps did since last time. The answer says what the
-  -- screen needs: `Changed.Windows` when a window opened, closed or was
-  -- renamed, `Changed.Pixels` when only new frames arrived.
+  -- screen needs: `Changed.Windows` when a window opened, closed, was
+  -- renamed or moved, or the keyboard moved; `Changed.Pixels` when only
+  -- new frames arrived from windows on screen.
   fn poll() -> Changed
     local changed = Changed.Nothing
-    if self.focusMoved then
-      self.focusMoved = false
+    if self.changed then
+      self.changed = false
       changed = Changed.Windows
     end
 
@@ -56,15 +148,20 @@ export class Session
       match ev.kind
         case WindowEventKind.Opened then
           printf("wm: %s opened, id: %d\n", ev.title, ev.id)
-          Table.insert(self.clients, Client(ev.id, ev.title))
+          local client = Client(ev.id, ev.title, self.current)
+          Table.insert(self.clients, client)
+          self.workspace().add(client, self.split)
+          self.sync()
           changed = Changed.Windows
 
         case WindowEventKind.Closed then
           printf("wm: window %d closed\n", ev.id)
-          if self.focused != nil and self.focused!.id == ev.id then
-            self.focused = nil
+          local client = self.find(ev.id)
+          if client != nil then
+            self.workspaces[client!.workspace].remove(client!)
+            self.remove(ev.id)
+            self.sync()
           end
-          self.remove(ev.id)
           changed = Changed.Windows
 
         case WindowEventKind.Title then
@@ -81,7 +178,9 @@ export class Session
           end
 
         case WindowEventKind.Frame then
-          if changed == Changed.Nothing then
+          local client = self.find(ev.id)
+          local shown = client != nil and client!.workspace == self.current
+          if shown and changed == Changed.Nothing then
             changed = Changed.Pixels
           end
 
@@ -99,6 +198,12 @@ export class Session
       end
     end
     return nil
+  end
+
+  -- After a change: who has the keyboard now, and redraw.
+  local fn sync() -> nil
+    self.focused = self.workspace().focused
+    self.changed = true
   end
 
   local fn remove(id: integer) -> nil

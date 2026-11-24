@@ -1,32 +1,75 @@
 -- The bar along the top of the screen: always there, whatever the layout.
 -- Like a Mac's menu bar it has no background of its own: the wallpaper
 -- shows through, darkened along the top edge (see `Wallpaper`).
+--
+--   ● Saule  [1] 2  3   Saule Maker              Tue 24 Nov  14:05
+--
+-- The workspaces are i3's: the one on screen lit, the others that have
+-- windows shown, the empty ones left out. Click one to go there.
 
 from uikit import *
+-- `Client` too: `session.focused` is one, and its fields need the type.
+from wm import Client, Session
 from Palette import Palette
 from Clock import Clock
 
 export class StatusBar extends View
-  -- The focused window's title, shown next to the logo.
-  title: string
+  session: Session
 
-  fn init(title: string = "", key: string? = nil)
+  fn init(session: Session, key: string? = nil)
     self.super(key)
-    self.title = title
+    self.session = session
   end
 
   fn body(context: BuildContext) -> View
+    local session = self.session
     local logo = Spacer().frame(width: 10.0, height: 10.0)
+
+    local title = ""
+    if session.focused != nil then
+      title = session.focused!.title
+    end
 
     local row = HStack(spacing: 10.0) do
       logo.background(Palette.accent, 5.0)
       Text("Saule").font(14.0).foregroundStyle(Palette.text)
-      Text(self.title).font(13.0).foregroundStyle(Palette.dimText)
+      StatusBar.workspaces(session)
+      Text(title).font(13.0).foregroundStyle(Palette.dimText)
       Spacer()
       Clock()
     end
 
     local inset = EdgeInsets.symmetric(horizontal: Palette.padding)
     return row.padding(insets: inset).frame(height: Palette.barHeight)
+  end
+
+  static fn workspaces(session: Session) -> View
+    return HStack(spacing: 4.0) do
+      for workspace in session.workspaces do
+        local number = workspace.number
+        local shown = number == session.current
+
+        if shown or not workspace.isEmpty() then
+          local go = fn()
+            session.show(number)
+          end
+          GestureArea(child: StatusBar.workspace(number, shown), onTap: go)
+        end
+      end
+    end
+  end
+
+  -- One workspace's button: its number on a pill, lit when it's on screen.
+  static fn workspace(number: integer, shown: boolean) -> View
+    local fill = Palette.workspace
+    local text = Palette.dimText
+    if shown then
+      fill = Palette.accent
+      text = Palette.text
+    end
+
+    local label = Text(tostring(number)).font(12.0).foregroundStyle(text)
+    local inset = EdgeInsets.symmetric(horizontal: 7.0, vertical: 1.0)
+    return label.padding(insets: inset).background(fill, 5.0)
   end
 end

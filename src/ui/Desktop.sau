@@ -1,9 +1,9 @@
 -- The whole screen: the wallpaper, the status bar along the top, and the
--- apps' windows below it, tiled with a gap around each.
+-- windows of the workspace on screen below it, tiled with a gap around
+-- each.
 
 from uikit import *
--- `Client` too: `session.focused` is one, and its fields need the type.
-from wm import Changed, Client, Session
+from wm import Changed, Direction, Node, Session, Split
 from Palette import Palette
 from Wallpaper import Wallpaper
 from StatusBar import StatusBar
@@ -37,38 +37,131 @@ export class Desktop extends View
   end
 
   fn body(context: BuildContext) -> View
-    local title = ""
-    if self.session.focused != nil then
-      title = self.session.focused!.title
-    end
+    local session = self.session
 
     local screen = VStack(alignment: StackAlignment.Fill) do
-      StatusBar(title: title)
-      Desktop.windows(self.session).padding(Palette.gap).expanded()
+      StatusBar(session)
+      Desktop.windows(session).padding(Palette.gap).expanded()
     end
 
     local shortcuts = fn(e: KeyEvent) -> boolean
-      return Desktop.shortcut(e)
+      return Desktop.shortcut(session, e)
     end
 
     local desktop = KeyboardListener(onKeyDown: shortcuts, child: screen)
     return Wallpaper(child: desktop)
   end
 
-  -- The window manager's own keys, whichever window has focus.
-  static fn shortcut(e: KeyEvent) -> boolean
+  -- The window manager's own keys, whichever window has focus. Super is
+  -- the key that says "this is for the window manager", as in i3:
+  --
+  --   Super + arrows            the keyboard to the window that way
+  --   Super + Shift + arrows    swap the window with the one that way
+  --   Super + H / V             the next window goes beside / below
+  --   Super + 1…4               that workspace
+  --   Super + Shift + 1…4       send the window to that workspace
+  --   Super + Shift + Q         close the window
+  --   Ctrl + Alt + Q            quit the window manager
+  static fn shortcut(session: Session, e: KeyEvent) -> boolean
     if e.ctrl and e.alt and e.key == "q" then
       App.quit()
       return true
     end
+
+    if not e.meta then
+      return false
+    end
+
+    local direction = Desktop.direction(e.key)
+    if direction != nil then
+      if e.shift then
+        session.moveToward(direction!)
+      else
+        session.focusToward(direction!)
+      end
+      return true
+    end
+
+    local number = Desktop.workspaceKey(e.key)
+    if number > 0 then
+      if e.shift then
+        session.sendTo(number)
+      else
+        session.show(number)
+      end
+      return true
+    end
+
+    if e.key == "h" then
+      session.splitNext(Split.Horizontal)
+      return true
+    end
+    if e.key == "v" then
+      session.splitNext(Split.Vertical)
+      return true
+    end
+    if e.shift and e.key == "q" then
+      session.close()
+      return true
+    end
+
     return false
   end
 
-  -- The windows side by side, for now. Tiling and floating come here.
+  static fn direction(key: string) -> Direction?
+    match key
+      case "left" then
+        return Direction.Left
+      case "right" then
+        return Direction.Right
+      case "up" then
+        return Direction.Up
+      case "down" then
+        return Direction.Down
+      case _ then
+        return nil
+    end
+  end
+
+  -- The workspace a number key picks, or 0 for any other key.
+  static fn workspaceKey(key: string) -> integer
+    for number = 1, Session.count do
+      if key == tostring(number) then
+        return number
+      end
+    end
+    return 0
+  end
+
+  -- The workspace on screen's windows, laid out as its tree says.
   static fn windows(session: Session) -> View
-    return HStack(alignment: StackAlignment.Fill, spacing: Palette.gap) do
-      for client in session.clients do
-        ClientWindow(client, session, key: tostring(client.id)).expanded()
+    local root = session.workspace().root
+    if root == nil then
+      return Spacer()
+    end
+    return Desktop.tile(root!, session)
+  end
+
+  -- A place in the tree: a window, or a split of places side by side or
+  -- one above another, sharing the room equally.
+  static fn tile(node: Node, session: Session) -> View
+    local client = node.client
+    if client != nil then
+      return ClientWindow(client!, session, key: tostring(client!.id))
+    end
+
+    local fill = StackAlignment.Fill
+    if node.split == Split.Horizontal then
+      return HStack(alignment: fill, spacing: Palette.gap) do
+        for child in node.children do
+          Desktop.tile(child, session).expanded()
+        end
+      end
+    end
+
+    return VStack(alignment: fill, spacing: Palette.gap) do
+      for child in node.children do
+        Desktop.tile(child, session).expanded()
       end
     end
   end

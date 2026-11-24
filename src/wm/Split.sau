@@ -1,0 +1,7 @@
+-- Which way a split lays out what it holds: side by side, or one above
+-- another.
+
+export enum Split
+  Horizontal,
+  Vertical
+end

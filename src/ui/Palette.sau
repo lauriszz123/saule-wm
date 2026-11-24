@@ -17,6 +17,9 @@ export class Palette
   static dimText: Color = Color(1.0, 1.0, 1.0, 0.78)
   static accent: Color = Color(0.48, 0.64, 0.97)
 
+  -- A workspace's button in the bar when it isn't the one on screen.
+  static workspace: Color = Color(1.0, 1.0, 1.0, 0.16)
+
   -- Windows: how round their corners are, their 1px outline (the accent on
   -- the one with the keyboard), and how dark their shadow starts.
   static radius: float = 8.0

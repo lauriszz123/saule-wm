@@ -8,9 +8,13 @@ export class Client
   -- The mouse cursor the app wants over its window.
   cursor: string
 
-  fn init(id: integer, title: string)
+  -- The workspace it's on, by number.
+  workspace: integer
+
+  fn init(id: integer, title: string, workspace: integer)
     self.id = id
     self.title = title
     self.cursor = "arrow"
+    self.workspace = workspace
   end
 end

@@ -1,0 +1,181 @@
+-- One screenful of windows, tiled i3-style: a tree of splits (see `Node`),
+-- and the window in it with the keyboard.
+
+from Client import Client
+from Direction import Direction
+from Node import Node
+from Split import Split
+
+export class Workspace
+  -- What the status bar calls it: 1, 2, …
+  number: integer
+
+  -- The layout; nil while there are no windows.
+  root: Node?
+
+  -- The window with the keyboard while this workspace is on screen.
+  focused: Client?
+
+  fn init(number: integer)
+    self.number = number
+    self.root = nil
+    self.focused = nil
+  end
+
+  fn isEmpty() -> boolean
+    return self.root == nil
+  end
+
+  fn has(client: Client) -> boolean
+    return self.find(client) != nil
+  end
+
+  -- Add a window next to the focused one. If that one's split already runs
+  -- the `split` way, the new window joins it, just after; if not, the
+  -- focused window becomes a new `split`, holding it and the new one.
+  fn add(client: Client, split: Split) -> nil
+    local window = Node.window(client)
+    local root = self.root
+    local focused = self.focused
+    self.focused = client
+
+    if root == nil then
+      self.root = window
+      return
+    end
+
+    local target = root!.lastWindow()
+    if focused != nil then
+      target = root!.find(focused!) ?? target
+    end
+
+    local parent = target.parent
+    if parent != nil and parent!.split == split then
+      parent!.insert(window, parent!.indexOf(target) + 1)
+      return
+    end
+
+    local box = Node.container(split)
+    self.replace(target, box)
+    box.insert(target)
+    box.insert(window)
+  end
+
+  -- Take a window out. The one that takes its place gets the keyboard, and
+  -- a split left holding one thing is replaced by that thing.
+  fn remove(client: Client) -> nil
+    local node = self.find(client)
+    if node == nil then
+      return
+    end
+
+    local parent = node!.parent
+    if parent == nil then
+      self.root = nil
+      self.focused = nil
+      return
+    end
+
+    local index = parent!.indexOf(node!)
+    Table.remove(parent!.children, index)
+    local next = parent!.children[Math.min(index, #parent!.children)]
+
+    if #parent!.children == 1 then
+      self.replace(parent!, parent!.children[1])
+    end
+
+    if self.focused == client then
+      self.focused = next.firstWindow().client
+    end
+  end
+
+  -- The window next to `client` the `direction` way, i3-style: go up the
+  -- tree to the first split running that way with something on that side,
+  -- then into it, to the window nearest.
+  fn neighbour(client: Client, direction: Direction) -> Client?
+    local node = self.find(client)
+    if node == nil then
+      return nil
+    end
+
+    local split = Split.Vertical
+    if direction == Direction.Left or direction == Direction.Right then
+      split = Split.Horizontal
+    end
+    local step = 1
+    if direction == Direction.Left or direction == Direction.Up then
+      step = -1
+    end
+
+    local place = node!
+    while place.parent != nil do
+      local parent = place.parent!
+      local index = parent.indexOf(place) + step
+
+      if parent.split == split and index >= 1 and index <= #parent.children then
+        local side = parent.children[index]
+        if step > 0 then
+          return side.firstWindow().client
+        end
+        return side.lastWindow().client
+      end
+      place = parent
+    end
+    return nil
+  end
+
+  -- Swap `client` with the window next to it the `direction` way.
+  fn move(client: Client, direction: Direction) -> nil
+    local other = self.neighbour(client, direction)
+    local here = self.find(client)
+    if other == nil or here == nil then
+      return
+    end
+
+    local there = self.find(other!)
+    if there != nil then
+      here!.client = other
+      there!.client = client
+    end
+  end
+
+  -- Every window here, in order.
+  fn clients() -> table<Client>
+    local out: table<Client> = {}
+    local root = self.root
+    if root != nil then
+      Workspace.collect(root!, out)
+    end
+    return out
+  end
+
+  fn find(client: Client) -> Node?
+    local root = self.root
+    if root == nil then
+      return nil
+    end
+    return root!.find(client)
+  end
+
+  -- Put `new` where `old` is.
+  local fn replace(old: Node, new: Node) -> nil
+    local parent = old.parent
+    if parent == nil then
+      self.root = new
+      new.parent = nil
+      return
+    end
+
+    parent!.children[parent!.indexOf(old)] = new
+    new.parent = parent
+  end
+
+  static fn collect(node: Node, out: table<Client>) -> nil
+    if node.client != nil then
+      Table.insert(out, node.client!)
+    end
+    for child in node.children do
+      Workspace.collect(child, out)
+    end
+  end
+end

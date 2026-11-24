@@ -1,0 +1,89 @@
+-- One place in a workspace's layout, i3-style: either a window, or a split
+-- that holds more places, side by side or one above another.
+--
+--     split (side by side)
+--     ├── window: Saule Maker
+--     └── split (one above another)
+--         ├── window: Terminal
+--         └── window: Shine demo
+
+from Client import Client
+from Split import Split
+
+export class Node
+  -- The window, when this place is one.
+  client: Client?
+
+  -- For a split: which way its places run, and what they are, in order.
+  split: Split
+  children: table<Node>
+
+  -- The split this place is in; nil at the top.
+  parent: Node?
+
+  fn init(client: Client?, split: Split)
+    self.client = client
+    self.split = split
+    self.children = {}
+    self.parent = nil
+  end
+
+  static fn window(client: Client) -> Node
+    return Node(client, Split.Horizontal)
+  end
+
+  static fn container(split: Split) -> Node
+    return Node(nil, split)
+  end
+
+  fn isWindow() -> boolean
+    return self.client != nil
+  end
+
+  -- Put `node` in this split, at `index` (the end when nil).
+  fn insert(node: Node, index: integer? = nil) -> nil
+    node.parent = self
+    Table.insert(self.children, node, index ?? #self.children + 1)
+  end
+
+  -- Where `child` is in this split, from 1; 0 when it isn't here.
+  fn indexOf(child: Node) -> integer
+    for i = 1, #self.children do
+      if self.children[i] == child then
+        return i
+      end
+    end
+    return 0
+  end
+
+  -- The first window in here, going in at the start of every split.
+  fn firstWindow() -> Node
+    if self.isWindow() or #self.children == 0 then
+      return self
+    end
+    return self.children[1].firstWindow()
+  end
+
+  -- The last window in here, going in at the end of every split.
+  fn lastWindow() -> Node
+    if self.isWindow() or #self.children == 0 then
+      return self
+    end
+    return self.children[#self.children].lastWindow()
+  end
+
+  -- The place showing `client`, in here or anywhere below.
+  fn find(client: Client) -> Node?
+    if self.client == client then
+      return self
+    end
+
+    for child in self.children do
+      local found = child.find(client)
+      if found != nil then
+        return found
+      end
+    end
+    return nil
+  end
+end
