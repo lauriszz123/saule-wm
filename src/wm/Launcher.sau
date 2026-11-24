@@ -2,13 +2,22 @@
 -- manager starts, and any app from the launcher (Super+Space).
 --
 -- The apps are the programs in `/bin/apps`, as on Saule Linux, and any
--- given on the command line (`saule run . some/app`). Nothing in
--- `/bin/apps` starts by itself: apps are opened from the launcher.
+-- given on the command line (`saule run . some/app`), which start at once.
+-- Nothing in `/bin/apps` starts by itself: apps are opened from the
+-- launcher or the system menu.
+--
+-- Nested on a desktop there is no `/bin/apps`: `SAULE_APPS` names another
+-- folder, such as the one saule-linux builds its apps into:
+--
+--   SAULE_APPS=../saule-linux/build/apps saule run .
 
+from log import Logger
 from Program import Program
 
 export class Launcher
-  -- Where Saule Linux keeps its apps.
+  static local log: Logger = Logger("wm.launcher")
+
+  -- Where Saule Linux keeps its apps, unless `SAULE_APPS` says otherwise.
   static folder: string = "/bin/apps"
 
   -- The apps started from here that may still be running: what Force
@@ -66,14 +75,40 @@ export class Launcher
 
   -- Start `program`. False when it could not be started.
   static fn start(program: Program) -> boolean
-    printf("wm: starting %s\n", program.path)
     local process = Os.spawn(program.path)
     if process == nil then
-      printf("wm: could not start %s\n", program.path)
+      Launcher.log.error("could not start", {path: program.path})
       return false
     end
+    Launcher.log.info(
+      "app started",
+      {name: program.name, path: program.path, pid: process!.pid()}
+    )
     Table.insert(Launcher.running, process!)
     return true
+  end
+
+  -- Pass on what the apps started here wrote since last time, each frame.
+  -- Their output is captured, so unread it would be lost (and pile up in
+  -- memory): it goes to the window manager's standard error as it is, so
+  -- one terminal shows the apps' log lines with its own. An app that has
+  -- ended is let go of once everything it wrote has been passed on.
+  static fn pump() -> nil
+    for i = #Launcher.running, 1, -1 do
+      local process = Launcher.running[i]
+      local out = Launcher.text(process.read())
+      local err = Launcher.text(process.readErr())
+      Io.stderr.write(out .. err)
+
+      if out == "" and err == "" and not process.running() then
+        Launcher.log.debug("app ended", {pid: process.pid()})
+        Table.remove(Launcher.running, i)
+      end
+    end
+  end
+
+  static fn text(data: bytes) -> string
+    return Bytes.toString(data) ?? ""
   end
 
   -- End the app with process id `pid` at once, without asking it: Force
@@ -82,6 +117,7 @@ export class Launcher
     for i = 1, #Launcher.running do
       local process = Launcher.running[i]
       if process.pid() == pid then
+        Launcher.log.debug("app killed", {pid: pid})
         Table.remove(Launcher.running, i)
         return process.kill()
       end
@@ -89,13 +125,14 @@ export class Launcher
     return false
   end
 
-  -- The programs in `Launcher.folder`, or none when there is no such
-  -- folder.
+  -- The programs in `SAULE_APPS`, or else `Launcher.folder`; none when
+  -- there is no such folder.
   static fn installed() -> table<string>
     local out: table<string> = {}
-    if Os.exists(Launcher.folder) then
-      for name in Os.list(Launcher.folder) do
-        Table.insert(out, Launcher.folder .. "/" .. name)
+    local folder = Os.getenv("SAULE_APPS") ?? Launcher.folder
+    if Os.exists(folder) then
+      for name in Os.list(folder) do
+        Table.insert(out, folder .. "/" .. name)
       end
     end
     return out

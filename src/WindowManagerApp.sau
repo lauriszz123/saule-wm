@@ -4,6 +4,7 @@ from uikit import *
 from wm import Session
 from ui import Desktop
 from service import SettingsService
+from log import Logger
 
 export class WindowManagerApp extends App
   apps: table<string>
@@ -12,6 +13,7 @@ export class WindowManagerApp extends App
   fn init(apps: table<string>)
     self.super()
     self.apps = apps
+    Logger("wm").info("starting", {apps: #apps, saule: Saule.full})
     self.session = Session()
     SettingsService.publish(self.session)
   end
