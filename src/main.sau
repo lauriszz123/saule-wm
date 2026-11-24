@@ -2,7 +2,8 @@
 saule-wm: the Saule Linux display server and window manager.
 
   saule run . [app …]   start the given apps inside it
-  On Saule Linux it starts everything in /bin/apps. Ctrl+Alt+Q quits.
+  On Saule Linux nothing starts by itself: the apps in /bin/apps are
+  opened from the launcher (Super+Space). Ctrl+Alt+Q quits.
 
 The code is layered; each folder only uses the ones above it:
 

@@ -1,9 +1,9 @@
--- Starting apps: everything at once when the window manager starts, and
--- one at a time from the launcher (Super+Space).
+-- Starting apps: the ones named on the command line when the window
+-- manager starts, and any app from the launcher (Super+Space).
 --
 -- The apps are the programs in `/bin/apps`, as on Saule Linux, and any
--- given on the command line (`saule run . some/app`), which is how to have
--- some to start where there is no `/bin/apps`.
+-- given on the command line (`saule run . some/app`). Nothing in
+-- `/bin/apps` starts by itself: apps are opened from the launcher.
 
 from Program import Program
 
@@ -15,20 +15,10 @@ export class Launcher
   -- Quit ends. They are this process's children, so it can.
   static local running: table<Process> = {}
 
-  -- Start `apps` as the window manager starts, or everything in
-  -- `Launcher.folder` when none were given.
+  -- Start `apps`, the ones the window manager was started with.
   static fn startApps(apps: table<string>) -> nil
-    local paths = apps
-    if #paths == 0 then
-      paths = Launcher.installed()
-    end
-
-    for path in paths do
+    for path in apps do
       Launcher.start(Program(path))
-    end
-
-    if #paths == 0 then
-      println("wm: no apps started")
     end
   end
 
