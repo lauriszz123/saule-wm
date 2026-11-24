@@ -24,4 +24,30 @@ export class WmOptions
 
   -- The wallpaper, by name: see `Presets.wallpapers`.
   wallpaper: string = "dusk"
+
+  -- How far the pointer goes for a mouse's movement, and the wheel scrolls
+  -- for a turn: 1 as the hardware reports them.
+  pointerSpeed: float = 1.0
+  scrollSpeed: float = 1.0
+
+  -- The wheel the other way round: what is scrolled moves the way the
+  -- fingers do.
+  naturalScrolling: boolean = false
+
+  -- Which button clicks: "left", or "right" for a left hand.
+  primaryButton: string = "left"
+
+  -- A window gets the keyboard when the pointer moves onto it, without a
+  -- click.
+  focusFollowsPointer: boolean = false
+
+  -- The key every shortcut is held with, "Mod": "super", "alt" or
+  -- "ctrl+alt", or "" for the one that suits where the window manager
+  -- runs (see `WmSettings.keys`).
+  modKey: string = ""
+
+  -- The shortcuts changed from what they are by default, by action (see
+  -- `KeyActions`), each written as its keys joined with "+":
+  -- {launcher: "ctrl+alt+d"}. Any left out are as they are by default.
+  shortcuts: table<string, string> = {}
 end

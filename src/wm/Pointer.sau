@@ -1,0 +1,40 @@
+-- How the mouse feels, as Settings sets it: the pointer's and the wheel's
+-- speed, the wheel's direction, which button clicks, and whether the
+-- keyboard follows the pointer. The first four are Shine's to apply (see
+-- its `Mouse.setPointerSpeed` and the rest): to the window manager's own
+-- views, and so to every app, which gets the mouse through it.
+
+import shine
+
+export class Pointer
+  static speed: float = 1.0
+  static scrollSpeed: float = 1.0
+  static natural: boolean = false
+
+  -- The right button clicks: for a left hand.
+  static swapped: boolean = false
+
+  -- A window gets the keyboard when the pointer moves onto it.
+  static followsFocus: boolean = false
+
+  -- Use these, from Settings. Speeds are kept to what makes a pointer
+  -- usable at all.
+  static fn configure(
+    speed: float,
+    scrollSpeed: float,
+    natural: boolean,
+    swapped: boolean,
+    followsFocus: boolean
+  ) -> nil
+    Pointer.speed = Math.clamp(speed, 0.25, 3.0)
+    Pointer.scrollSpeed = Math.clamp(scrollSpeed, 0.25, 3.0)
+    Pointer.natural = natural
+    Pointer.swapped = swapped
+    Pointer.followsFocus = followsFocus
+
+    Mouse.setPointerSpeed(Pointer.speed)
+    Mouse.setScrollSpeed(Pointer.scrollSpeed)
+    Mouse.setNaturalScrolling(Pointer.natural)
+    Mouse.setButtonsSwapped(Pointer.swapped)
+  end
+end

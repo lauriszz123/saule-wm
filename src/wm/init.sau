@@ -2,6 +2,8 @@
 -- out on workspaces, and starting apps. Nothing here draws.
 
 export from Split import *
+export from Keymap import *
+export from Pointer import *
 export from Direction import *
 export from Client import *
 export from Node import *

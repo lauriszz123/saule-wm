@@ -9,10 +9,14 @@
 import shine
 from uikit import Display
 from "wmapi" import SystemInfo, WmOptions, WmService, WmSettings
-from wm import Session, Split
+from wm import Keymap, Pointer, Session, Split
 from ui import Palette
+from log import Logger
+from GraphicsCard import GraphicsCard
 
 export class SettingsService implements WmSettings
+  static local log: Logger = Logger("wm.settings")
+
   session: Session
 
   fn init(session: Session)
@@ -23,10 +27,12 @@ export class SettingsService implements WmSettings
   -- manager already serving the name (a second one nested inside the
   -- first) leaves this one without Settings rather than without windows.
   static fn publish(session: Session) -> nil
+    GraphicsCard.start()
     try
       WmSettings.publish(WmService.name, SettingsService(session))
+      SettingsService.log.debug("serving", {service: WmService.name})
     catch e: string
-      printf("wm: no settings service: %s\n", e)
+      SettingsService.log.warn("no settings service", {reason: e})
     end
   end
 
@@ -42,6 +48,20 @@ export class SettingsService implements WmSettings
     options.accent = Palette.accentName
     options.corners = Palette.radius
     options.wallpaper = Palette.wallpaperName
+    options.pointerSpeed = Pointer.speed
+    options.scrollSpeed = Pointer.scrollSpeed
+    options.naturalScrolling = Pointer.natural
+    options.primaryButton = "left"
+    if Pointer.swapped then
+      options.primaryButton = "right"
+    end
+    options.focusFollowsPointer = Pointer.followsFocus
+    options.modKey = Keymap.chosenMod
+    local custom: table<string, string> = {}
+    for name, keys in Keymap.custom do
+      custom[name] = keys
+    end
+    options.shortcuts = custom
     return options
   end
 
@@ -52,6 +72,14 @@ export class SettingsService implements WmSettings
     Palette.radius = Math.clamp(options.corners, 0.0, 16.0)
     Palette.useAccent(options.accent)
     Palette.useWallpaper(options.wallpaper)
+    Keymap.configure(options.modKey, options.shortcuts)
+    Pointer.configure(
+      options.pointerSpeed,
+      options.scrollSpeed,
+      options.naturalScrolling,
+      options.primaryButton == "right",
+      options.focusFollowsPointer
+    )
 
     local split = Split.Horizontal
     if options.newWindows == "below" then
@@ -59,14 +87,43 @@ export class SettingsService implements WmSettings
     end
     self.session.splitNext(split)
     self.session.refresh()
+    SettingsService.log.info(
+      "settings applied",
+      {
+        gap: Palette.gap,
+        corners: Palette.radius,
+        accent: Palette.accentName,
+        wallpaper: Palette.wallpaperName,
+        newWindows: options.newWindows,
+        mod: Keymap.scheme(),
+        changedKeys: #Table.keys(Keymap.custom),
+        pointer: Pointer.speed,
+        scroll: Pointer.scrollSpeed,
+        natural: Pointer.natural,
+        leftHanded: Pointer.swapped,
+        followsFocus: Pointer.followsFocus,
+      }
+    )
+  end
+
+  fn keys() -> table<string, string>
+    return Keymap.written()
+  end
+
+  fn recordKeys(on: boolean)
+    self.session.recordKeys(on)
+    SettingsService.log.debug("recording keys", {on: on})
   end
 
   fn about() -> SystemInfo
+    SettingsService.log.debug("about asked for")
     local info = SystemInfo()
     info.saule = Saule.full
     info.wm = Project.version
+    info.machine = SettingsService.machine()
     info.kernel = SettingsService.firstLine("/proc/sys/kernel/osrelease")
     SettingsService.processor(info)
+    info.graphics = GraphicsCard.name()
     info.memory = SettingsService.memory()
     info.uptime = SettingsService.uptime()
     -- In the window manager's own pixels, which its layout uses: on a
@@ -75,6 +132,7 @@ export class SettingsService implements WmSettings
     info.screenWidth = Display.toLogical(w as float) as integer
     info.screenHeight = Display.toLogical(h as float) as integer
     info.windows = #self.session.clients
+    info.host = Keymap.host
     return info
   end
 
@@ -88,6 +146,18 @@ export class SettingsService implements WmSettings
     local line = file!.read("l") ?? ""
     file!.close()
     return String.trim(line)
+  end
+
+  -- The computer's name from its firmware (DMI): the product, or the maker
+  -- when the product says nothing, as a board's "To Be Filled By O.E.M."
+  -- does.
+  static fn machine() -> string
+    local dmi = "/sys/class/dmi/id/"
+    local product = SettingsService.firstLine(dmi .. "product_name")
+    if product != "" and not String.contains(product, "O.E.M") then
+      return product
+    end
+    return SettingsService.firstLine(dmi .. "sys_vendor")
   end
 
   -- The processor's name and threads, from `/proc/cpuinfo`: one block per
