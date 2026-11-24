@@ -2,6 +2,9 @@
 -- (wmapi's `WmSettings`). A change is applied as it arrives, to the
 -- palette and the session, and the screen redrawn.
 --
+-- What is applied is also saved (`Preferences`), and what was saved is
+-- applied when the window manager starts: settings outlive a restart.
+--
 -- Its values come from another process, so each is kept to a sensible
 -- range rather than trusted: a gap of a thousand pixels would leave no
 -- room for windows at all.
@@ -13,6 +16,7 @@ from wm import Keymap, Pointer, Session, Split
 from ui import Palette
 from log import Logger
 from GraphicsCard import GraphicsCard
+from Preferences import Preferences
 from Storage import Storage
 
 export class SettingsService implements WmSettings
@@ -29,8 +33,13 @@ export class SettingsService implements WmSettings
   -- first) leaves this one without Settings rather than without windows.
   static fn publish(session: Session) -> nil
     GraphicsCard.start()
+    local service = SettingsService(session)
+    local saved = Preferences.load()
+    if saved != nil then
+      service.use(saved!)
+    end
     try
-      WmSettings.publish(WmService.name, SettingsService(session))
+      WmSettings.publish(WmService.name, service)
       SettingsService.log.debug("serving", {service: WmService.name})
     catch e: string
       SettingsService.log.warn("no settings service", {reason: e})
@@ -68,6 +77,7 @@ export class SettingsService implements WmSettings
 
   fn apply(options: WmOptions)
     self.use(options)
+    Preferences.save(self.options())
     SettingsService.log.info(
       "settings applied",
       {

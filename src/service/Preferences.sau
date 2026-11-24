@@ -1,0 +1,125 @@
+-- The window manager's settings, kept in a file so they outlive a restart:
+-- `~/.config/saule/wm.conf` (on Saule Linux the home is on the data disk;
+-- with no data disk it is in memory and they last until power-off).
+--
+-- One `name = value` a line, so a person can read and fix it by hand; a
+-- changed shortcut is `shortcut.<action> = <keys>`. A line that makes no
+-- sense is skipped, and a setting missing keeps its default.
+
+from "wmapi" import WmOptions
+from log import Logger
+from Storage import Storage
+
+export class Preferences
+  static local log: Logger = Logger("wm.preferences")
+
+  static fn path() -> string
+    return Storage.settingsFolder() .. "/wm.conf"
+  end
+
+  -- The settings saved before, or nil when there are none.
+  static fn load() -> WmOptions?
+    local file = Io.open(Preferences.path(), IoMode.Read)
+    if file == nil then
+      return nil
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+
+    local options = WmOptions()
+    local shortcuts: table<string, string> = {}
+    for raw in String.split(text, "\n") do
+      local line = String.trim(raw)
+      local at = String.indexOf(line, "=")
+      if at != nil and not String.starts(line, "#") then
+        local name = String.trim(String.sub(line, 1, at! - 1))
+        local value = String.trim(String.sub(line, at! + 1))
+        if String.starts(name, "shortcut.") then
+          shortcuts[String.sub(name, 10)] = value
+        else
+          Preferences.set(options, name, value)
+        end
+      end
+    end
+    options.shortcuts = shortcuts
+    Preferences.log.info("settings loaded", {path: Preferences.path()})
+    return options
+  end
+
+  -- Keep `options`, replacing what was kept: written beside and renamed
+  -- over, so a power cut mid-write leaves the old file whole.
+  static fn save(options: WmOptions) -> nil
+    local folder = Storage.settingsFolder()
+    Os.mkdir(folder, true)
+    local lines: table<string> = {
+      "# Saule window manager settings, written by Settings.",
+      "gap = " .. tostring(options.gap),
+      "grab = " .. tostring(options.grab),
+      "resizeStep = " .. tostring(options.resizeStep),
+      "newWindows = " .. options.newWindows,
+      "accent = " .. options.accent,
+      "corners = " .. tostring(options.corners),
+      "wallpaper = " .. options.wallpaper,
+      "pointerSpeed = " .. tostring(options.pointerSpeed),
+      "scrollSpeed = " .. tostring(options.scrollSpeed),
+      "naturalScrolling = " .. tostring(options.naturalScrolling),
+      "primaryButton = " .. options.primaryButton,
+      "focusFollowsPointer = " .. tostring(options.focusFollowsPointer),
+      "modKey = " .. options.modKey,
+    }
+    local names = Table.keys(options.shortcuts)
+    Table.sort(names, fn(a: string, b: string) -> boolean
+      return a < b
+    end)
+    for name in names do
+      Table.insert(
+        lines,
+        "shortcut." .. name .. " = " .. options.shortcuts[name]!
+      )
+    end
+
+    local path = Preferences.path()
+    local part = path .. ".part"
+    local file = Io.open(part, IoMode.Write)
+    if file == nil then
+      Preferences.log.warn("could not save settings", {path: path})
+      return
+    end
+    file!.write(String.join("\n", lines) .. "\n")
+    file!.close()
+    Os.rename(part, path)
+    Preferences.log.debug("settings saved", {path: path})
+  end
+
+  static fn set(options: WmOptions, name: string, value: string) -> nil
+    match name
+      case "gap" then
+        options.gap = (value as float?) ?? options.gap
+      case "grab" then
+        options.grab = (value as float?) ?? options.grab
+      case "resizeStep" then
+        options.resizeStep = (value as integer?) ?? options.resizeStep
+      case "newWindows" then
+        options.newWindows = value
+      case "accent" then
+        options.accent = value
+      case "corners" then
+        options.corners = (value as float?) ?? options.corners
+      case "wallpaper" then
+        options.wallpaper = value
+      case "pointerSpeed" then
+        options.pointerSpeed = (value as float?) ?? options.pointerSpeed
+      case "scrollSpeed" then
+        options.scrollSpeed = (value as float?) ?? options.scrollSpeed
+      case "naturalScrolling" then
+        options.naturalScrolling = value == "true"
+      case "primaryButton" then
+        options.primaryButton = value
+      case "focusFollowsPointer" then
+        options.focusFollowsPointer = value == "true"
+      case "modKey" then
+        options.modKey = value
+      case _ then nil
+    end
+  end
+end
