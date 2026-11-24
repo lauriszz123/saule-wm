@@ -7,7 +7,7 @@ from Preset import Preset
 
 export class Presets
   -- One colour each.
-  static accents: table<Preset> = {
+  static accents: Preset[] = {
     Preset("blue", "Blue", {Rgba(0.48, 0.64, 0.97)}),
     Preset("purple", "Purple", {Rgba(0.69, 0.52, 0.96)}),
     Preset("pink", "Pink", {Rgba(0.96, 0.49, 0.72)}),
@@ -16,9 +16,9 @@ export class Presets
     Preset("graphite", "Graphite", {Rgba(0.62, 0.64, 0.68)}),
   }
 
-  -- Four colours each: the wash's top left, middle and bottom right, then
-  -- the glow up on the right.
-  static wallpapers: table<Preset> = {
+  -- Gradients: four colours each — the wash's top left, middle and bottom
+  -- right, then the glow up on the right.
+  static wallpapers: Preset[] = {
     Preset(
       "dusk",
       "Dusk",
@@ -26,7 +26,7 @@ export class Presets
         Rgba(0.09, 0.12, 0.30),
         Rgba(0.30, 0.20, 0.50),
         Rgba(0.85, 0.48, 0.52),
-        Rgba(1.0, 0.70, 0.56, 0.40)
+        Rgba(1.00, 0.70, 0.56, 0.40)
       )
     ),
     Preset(
@@ -56,7 +56,7 @@ export class Presets
         Rgba(0.14, 0.05, 0.08),
         Rgba(0.45, 0.12, 0.16),
         Rgba(0.95, 0.52, 0.28),
-        Rgba(1.0, 0.80, 0.45, 0.40)
+        Rgba(1.00, 0.80, 0.45, 0.40)
       )
     ),
     Preset(
@@ -69,6 +69,234 @@ export class Presets
         Rgba(0.85, 0.87, 0.92, 0.25)
       )
     ),
+    Preset(
+      "lavender",
+      "Lavender",
+      Presets.wash(
+        Rgba(0.24, 0.20, 0.46),
+        Rgba(0.55, 0.46, 0.78),
+        Rgba(0.90, 0.80, 0.92),
+        Rgba(1.00, 0.95, 1.00, 0.40)
+      )
+    ),
+    Preset(
+      "peach",
+      "Peach",
+      Presets.wash(
+        Rgba(0.62, 0.36, 0.42),
+        Rgba(0.95, 0.62, 0.52),
+        Rgba(1.00, 0.86, 0.68),
+        Rgba(1.00, 0.97, 0.85, 0.45)
+      )
+    ),
+    Preset(
+      "mint",
+      "Mint",
+      Presets.wash(
+        Rgba(0.06, 0.28, 0.30),
+        Rgba(0.20, 0.58, 0.52),
+        Rgba(0.72, 0.92, 0.78),
+        Rgba(0.92, 1.00, 0.90, 0.40)
+      )
+    ),
+    Preset(
+      "midnight",
+      "Midnight",
+      Presets.wash(
+        Rgba(0.02, 0.03, 0.08),
+        Rgba(0.06, 0.09, 0.22),
+        Rgba(0.20, 0.24, 0.46),
+        Rgba(0.45, 0.55, 0.95, 0.30)
+      )
+    ),
+    Preset(
+      "rose",
+      "Rose",
+      Presets.wash(
+        Rgba(0.30, 0.08, 0.20),
+        Rgba(0.72, 0.30, 0.44),
+        Rgba(0.98, 0.70, 0.66),
+        Rgba(1.00, 0.88, 0.80, 0.40)
+      )
+    ),
+    Preset(
+      "sky",
+      "Sky",
+      Presets.wash(
+        Rgba(0.14, 0.36, 0.70),
+        Rgba(0.42, 0.66, 0.92),
+        Rgba(0.86, 0.92, 0.98),
+        Rgba(1.00, 1.00, 1.00, 0.40)
+      )
+    ),
+  }
+
+  -- Animated gradients: a wash (its first three colours) with three soft
+  -- glows of colour drifting slowly across it (the last three).
+  static animated: Preset[] = {
+    Preset(
+      "aurora",
+      "Aurora",
+      {
+        Rgba(0.02, 0.04, 0.12),
+        Rgba(0.04, 0.10, 0.22),
+        Rgba(0.06, 0.16, 0.26),
+        Rgba(0.10, 0.85, 0.62, 0.75),
+        Rgba(0.40, 0.30, 0.95, 0.70),
+        Rgba(0.05, 0.55, 0.85, 0.65),
+      }
+    ),
+    Preset(
+      "lagoon",
+      "Lagoon",
+      {
+        Rgba(0.02, 0.18, 0.30),
+        Rgba(0.04, 0.36, 0.50),
+        Rgba(0.10, 0.55, 0.62),
+        Rgba(0.30, 0.90, 0.85, 0.70),
+        Rgba(0.10, 0.45, 0.95, 0.65),
+        Rgba(0.75, 0.98, 0.80, 0.55),
+      }
+    ),
+    Preset(
+      "sunset",
+      "Sunset",
+      {
+        Rgba(0.20, 0.06, 0.22),
+        Rgba(0.50, 0.14, 0.30),
+        Rgba(0.85, 0.38, 0.30),
+        Rgba(1.00, 0.62, 0.25, 0.75),
+        Rgba(0.95, 0.30, 0.55, 0.70),
+        Rgba(0.55, 0.25, 0.85, 0.60),
+      }
+    ),
+    Preset(
+      "nebula",
+      "Nebula",
+      {
+        Rgba(0.04, 0.02, 0.10),
+        Rgba(0.12, 0.05, 0.25),
+        Rgba(0.22, 0.08, 0.36),
+        Rgba(0.90, 0.25, 0.75, 0.65),
+        Rgba(0.30, 0.35, 1.00, 0.65),
+        Rgba(0.20, 0.80, 0.95, 0.50),
+      }
+    ),
+    Preset(
+      "meadow",
+      "Meadow",
+      {
+        Rgba(0.10, 0.24, 0.18),
+        Rgba(0.20, 0.42, 0.26),
+        Rgba(0.50, 0.62, 0.30),
+        Rgba(0.95, 0.88, 0.35, 0.65),
+        Rgba(0.20, 0.75, 0.55, 0.65),
+        Rgba(0.55, 0.85, 0.95, 0.55),
+      }
+    ),
+  }
+
+  -- Photographs, from files (see `WallpaperArt.photoFile`): each named as
+  -- its file is, `<name>.jpg`. The colours are the photograph's own sky,
+  -- middle and ground, and stand in while it loads or if its file is
+  -- missing.
+  static photos: Preset[] = {
+    Preset(
+      "yosemite",
+      "Yosemite",
+      {Rgba(0.30, 0.52, 0.86), Rgba(0.55, 0.56, 0.52), Rgba(0.20, 0.30, 0.18)}
+    ),
+    Preset(
+      "tahoe",
+      "Tahoe",
+      {Rgba(0.85, 0.48, 0.40), Rgba(0.55, 0.40, 0.45), Rgba(0.20, 0.16, 0.18)}
+    ),
+    Preset(
+      "whitney",
+      "Whitney",
+      {Rgba(0.55, 0.55, 0.66), Rgba(0.75, 0.74, 0.80), Rgba(0.14, 0.14, 0.16)}
+    ),
+    Preset(
+      "mojave",
+      "Mojave",
+      {Rgba(0.30, 0.50, 0.82), Rgba(0.80, 0.70, 0.55), Rgba(0.55, 0.44, 0.34)}
+    ),
+    Preset(
+      "bigsur",
+      "Big Sur",
+      {Rgba(0.30, 0.42, 0.66), Rgba(0.24, 0.36, 0.48), Rgba(0.32, 0.36, 0.22)}
+    ),
+    Preset(
+      "lonepine",
+      "Lone Pine",
+      {Rgba(0.98, 0.55, 0.42), Rgba(0.62, 0.40, 0.66), Rgba(0.22, 0.20, 0.26)}
+    ),
+    Preset(
+      "alpenglow",
+      "Alpenglow",
+      {Rgba(0.92, 0.38, 0.62), Rgba(0.60, 0.42, 0.62), Rgba(0.20, 0.20, 0.26)}
+    ),
+    Preset(
+      "sahara",
+      "Sahara",
+      {Rgba(0.62, 0.60, 0.60), Rgba(0.86, 0.56, 0.36), Rgba(0.55, 0.32, 0.22)}
+    ),
+  }
+
+  -- Pictures, drawn rather than stored, as a landscape at any size: the
+  -- colours are the picture's own (sky, haze, ground, light), which a
+  -- picture uses as it needs. `WallpaperArt` draws each by its name.
+  static pictures: Preset[] = {
+    Preset(
+      "hills",
+      "Hills",
+      {
+        Rgba(0.53, 0.68, 0.86),
+        Rgba(0.80, 0.80, 0.84),
+        Rgba(0.24, 0.40, 0.29),
+        Rgba(1.00, 0.92, 0.80, 0.60),
+      }
+    ),
+    Preset(
+      "dunes",
+      "Dunes",
+      {
+        Rgba(0.42, 0.60, 0.86),
+        Rgba(0.96, 0.84, 0.72),
+        Rgba(0.80, 0.50, 0.32),
+        Rgba(1.00, 0.95, 0.85, 0.50),
+      }
+    ),
+    Preset(
+      "peaks",
+      "Peaks",
+      {
+        Rgba(0.36, 0.30, 0.60),
+        Rgba(0.98, 0.64, 0.50),
+        Rgba(0.18, 0.14, 0.34),
+        Rgba(1.00, 0.80, 0.65, 0.50),
+      }
+    ),
+    Preset(
+      "waves",
+      "Waves",
+      {
+        Rgba(0.12, 0.08, 0.32),
+        Rgba(0.30, 0.30, 0.80),
+        Rgba(0.85, 0.40, 0.70),
+        Rgba(0.60, 0.90, 1.00, 0.40),
+      }
+    ),
+    Preset(
+      "lake",
+      "Lake",
+      {
+        Rgba(0.03, 0.05, 0.13),
+        Rgba(0.16, 0.19, 0.38),
+        Rgba(0.05, 0.07, 0.15),
+        Rgba(0.85, 0.90, 1.00, 0.40),
+      }
+    ),
   }
 
   -- A wallpaper's colours, in the order the window manager paints them:
@@ -76,6 +304,46 @@ export class Presets
   -- (`low`), then the glow.
   static fn wash(top: Rgba, middle: Rgba, low: Rgba, glow: Rgba) -> table<Rgba>
     return {top, middle, low, glow}
+  end
+
+  -- The wallpaper called `name`, whichever kind it is: a picture, a
+  -- gradient or an animated one; the first gradient when there is none.
+  static fn wallpaper(name: string) -> Preset
+    local lists = {
+      Presets.photos,
+      Presets.pictures,
+      Presets.wallpapers,
+      Presets.animated,
+    }
+    for list in lists do
+      for preset in list do
+        if preset.name == name then
+          return preset
+        end
+      end
+    end
+    return Presets.wallpapers[1]
+  end
+
+  -- Which kind the wallpaper called `name` is: "photo", "picture",
+  -- "animated" or "gradient".
+  static fn kind(name: string) -> string
+    for preset in Presets.photos do
+      if preset.name == name then
+        return "photo"
+      end
+    end
+    for preset in Presets.pictures do
+      if preset.name == name then
+        return "picture"
+      end
+    end
+    for preset in Presets.animated do
+      if preset.name == name then
+        return "animated"
+      end
+    end
+    return "gradient"
   end
 
   -- The preset called `name` in `list`, or the first when there is none:

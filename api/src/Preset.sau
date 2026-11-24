@@ -8,7 +8,7 @@ export class Preset
   name: string
   title: string
 
-  colours: table<Rgba>
+  colours: Rgba[]
 
   fn init(name: string, title: string, colours: table<Rgba>)
     self.name = name

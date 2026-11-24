@@ -1,27 +1,75 @@
--- The picture behind everything: a soft gradient across the screen, shaded
--- darker along the top, behind the status bar.
+-- The picture behind everything: a gradient, a drawn landscape or an
+-- animated gradient (wmapi's `WallpaperArt` draws each). The desktop's is
+-- the wallpaper as it is (the status bar frosts its own strip of it); the
+-- lock screen's has no bar, and darkens toward every edge instead, a
+-- vignette that draws the eye to the time in the middle, and is softened
+-- by a little blur.
 --
--- Working a gradient out over the whole screen takes a netbook a good part
--- of a frame, so it's drawn once into an image, and again only when the
--- screen changes size or Settings picks another wallpaper. Each frame just
--- copies that image. The image is shared: the lock screen shows the same
--- wallpaper, and drawing it a second time as the screen locks is the
--- slowest thing that frame would do.
+-- Working a wallpaper out over the whole screen takes a netbook a good part
+-- of a frame (a picture, many), so a still one is drawn once into an
+-- image, and again only when the screen changes size or Settings picks
+-- another. Each frame just copies that image. Both versions are drawn
+-- together, the lock screen's as a copy of the desktop's with the
+-- vignette over it: the screen locking is then a copy too, not the slowest
+-- thing its frame would do.
+--
+-- An animated one moves, so it is drawn again as it moves: as often as
+-- `Wallpaper.frameRate` says, which a slow drift needs no more of, into
+-- the same two images; the frames between copy them as they are.
 
 import shine
 from uikit import *
 from Palette import Palette
 from Gradient import Gradient
+from "wmapi" import WallpaperArt
 
 export class Wallpaper extends SingleChildView
-  -- The wallpaper as last drawn, the size it was drawn at, and which.
-  static local image: Canvas? = nil
+  -- The vignette, not the status bar's shade: the lock screen's version.
+  vignette: boolean
+
+  -- Both versions as last drawn, the size they were drawn at, and which.
+  static local desktop: Canvas? = nil
+  static local locked: Canvas? = nil
   static local w: integer = 0
   static local h: integer = 0
   static local name: string = ""
 
-  fn init(child: View? = nil, key: string? = nil)
+  -- How often an animated wallpaper is drawn again, a second.
+  static frameRate: float = 30.0
+
+  -- Seconds an animated wallpaper has been moving, and since it was last
+  -- drawn.
+  static local time: float = 0.0
+  static local since: float = 0.0
+
+  -- The vignette's shape, in a square: stretched over the screen, it
+  -- follows the screen's own proportions, an ellipse rather than a circle.
+  static local edges: Canvas? = nil
+  static local edgesSize: integer = 256
+
+  fn init(child: View? = nil, vignette: boolean = false, key: string? = nil)
     self.super(child, key)
+    self.vignette = vignette
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  -- An animated wallpaper moves on, and is drawn again when it is due. Both
+  -- versions (the desktop's and the lock screen's) tick: one counts.
+  fn tick(el: Element, dt: float) -> nil
+    if self.vignette or not WallpaperArt.moves(Palette.wallpaperName) then
+      return
+    end
+    Wallpaper.time += dt
+    Wallpaper.since += dt
+    if Wallpaper.since >= 1.0 / Wallpaper.frameRate then
+      Wallpaper.since = 0.0
+      Wallpaper.name = ""
+      Repaint.request()
+    end
   end
 
   -- The whole screen, and whatever is on it on top.
@@ -42,13 +90,16 @@ export class Wallpaper extends SingleChildView
     local h = el.size.height as integer
     local name = Palette.wallpaperName
     local resized = w != Wallpaper.w or h != Wallpaper.h
-    if Wallpaper.image == nil or resized or name != Wallpaper.name then
-      Wallpaper.image = Wallpaper.render(w, h)
+    if Wallpaper.desktop == nil or resized or name != Wallpaper.name then
+      Wallpaper.render(w, h)
       Wallpaper.w = w
       Wallpaper.h = h
       Wallpaper.name = name
     end
-    local image = Wallpaper.image!
+    local image = Wallpaper.desktop!
+    if self.vignette then
+      image = Wallpaper.locked!
+    end
 
     -- Shine tints an image with the current colour: white leaves it be.
     Graphics.setColor(1.0, 1.0, 1.0)
@@ -56,40 +107,82 @@ export class Wallpaper extends SingleChildView
     el.paintChildren(x, y)
   end
 
-  -- Draw the wallpaper into a new image of `w` by `h`.
-  static fn render(w: integer, h: integer) -> Canvas
-    local image = Graphics.newCanvas(w, h)
+  -- Draw both versions, `w` by `h`: into the images there are when they
+  -- are that size, else new ones (Shine frees the old once nothing holds
+  -- them).
+  static fn render(w: integer, h: integer) -> nil
+    local same = w == Wallpaper.w and h == Wallpaper.h
+    local desktop = Wallpaper.reuse(Wallpaper.desktop, same, w, h)
+    local locked = Wallpaper.reuse(Wallpaper.locked, same, w, h)
+    local edges = Wallpaper.vignetteShape()
     local screen = Graphics.getCanvas()
 
     -- Start from a clean slate: no transform or clip from the views around.
     Graphics.push("all")
     Graphics.origin()
     Graphics.setScissor()
-    Graphics.setCanvas(image)
+    Graphics.setCanvas(desktop)
 
     local fw = w as float
     local fh = h as float
-    local top = Palette.wallpaperTop
-    local middle = Palette.wallpaperMiddle
-    local bottom = Palette.wallpaperBottom
-    local wash = Gradient.stops({top, middle, bottom})
-    Graphics.setLinearGradient(0.0, 0.0, fw, fh, wash)
-    Graphics.rectangle("fill", 0.0, 0.0, fw, fh)
+    WallpaperArt.paint(Palette.wallpaperName, 0.0, 0.0, fw, fh, Wallpaper.time)
 
-    local glow = Gradient.stops({Palette.glow, Palette.glow.withAlpha(0.0)})
-    Graphics.setRadialGradient(fw * 0.85, fh * 0.15, fw * 0.55, glow)
-    Graphics.rectangle("fill", 0.0, 0.0, fw, fh)
+    -- The lock screen's: the picture so far, darkened toward the edges.
+    Graphics.setCanvas(locked)
+    Graphics.setColor(1.0, 1.0, 1.0)
+    Graphics.draw(desktop, 0.0, 0.0)
+    local size = Wallpaper.edgesSize as float
+    Graphics.draw(edges, 0.0, 0.0, 0.0, fw / size, fh / size)
+    -- Softened, so the time on it is what stands out.
+    if Palette.lockWallpaperBlur > 0.0 then
+      Graphics.blur(0.0, 0.0, fw, fh, Palette.lockWallpaperBlur)
+    end
 
-    -- The status bar's shade: dark at the top edge, gone by its bottom.
-    local bar = Palette.barHeight
-    local dark = Color(0.0, 0.0, 0.0, Palette.barShade)
-    local shade = Gradient.stops({dark, dark.withAlpha(0.0)})
-    Graphics.setLinearGradient(0.0, 0.0, 0.0, bar, shade)
-    Graphics.rectangle("fill", 0.0, 0.0, fw, bar)
+    Graphics.setCanvas(screen)
+    Graphics.pop()
+    Wallpaper.desktop = desktop
+    Wallpaper.locked = locked
+  end
+
+  -- `image` again when there is one and the size is the `same`, else a
+  -- new image `w` by `h`.
+  static fn reuse(image: Canvas?, same: boolean, w: integer, h: integer) -> Canvas
+    if same and image != nil then
+      return image!
+    end
+    return Graphics.newCanvas(w, h)
+  end
+
+  -- The vignette in its square, drawn the first time it's needed: clear
+  -- over the middle, darkening from there to `Palette.vignette` at the
+  -- corners. The radius reaches the corners, so the middle of each side
+  -- is only half as dark.
+  static fn vignetteShape() -> Canvas
+    if Wallpaper.edges != nil then
+      return Wallpaper.edges!
+    end
+    local n = Wallpaper.edgesSize
+    local size = n as float
+    local edges = Graphics.newCanvas(n, n)
+    local screen = Graphics.getCanvas()
+    Graphics.push("all")
+    Graphics.origin()
+    Graphics.setScissor()
+    Graphics.setCanvas(edges)
+    Graphics.clear(0.0, 0.0, 0.0, 0.0)
+
+    local dark = Color(0.0, 0.0, 0.0, Palette.vignette)
+    local clear = dark.withAlpha(0.0)
+    local half = dark.withAlpha(Palette.vignette * 0.4)
+    local fade = Gradient.stops({clear, clear, half, dark})
+    local middle = size / 2.0
+    Graphics.setRadialGradient(middle, middle, middle * Math.sqrt(2.0), fade)
+    Graphics.rectangle("fill", 0.0, 0.0, size, size)
     Graphics.clearGradient()
 
     Graphics.setCanvas(screen)
     Graphics.pop()
-    return image
+    Wallpaper.edges = edges
+    return edges
   end
 end
