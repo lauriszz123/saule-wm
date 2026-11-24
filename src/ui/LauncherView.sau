@@ -1,0 +1,162 @@
+-- The launcher (Super+Space), after the Mac's Spotlight: a search bar a
+-- little way down the screen, over everything. Typing lists the apps whose
+-- names match under it; Up and Down pick one, Enter or a click starts it,
+-- and Escape or a click anywhere else closes it.
+--
+--   ╭──────────────────────────────────────────╮
+--   │ 🔍  ter                                   │
+--   │ ──────────────────────────────────────── │
+--   │ ▣  Terminal                               │
+--   │ ▣  Text Editor                            │
+--   ╰──────────────────────────────────────────╯
+--
+-- What was typed and which app is picked belong to this view, not to the
+-- session: closing the launcher forgets them, as Spotlight does.
+
+from uikit import *
+-- `Program` too: the list holds them, and their fields need the type.
+from wm import Launcher, Program, Session
+from Palette import Palette
+from LauncherRow import LauncherRow
+from SearchGlyph import SearchGlyph
+
+export class LauncherView extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local query = context.state("query", "")
+    local picked = context.state("picked", 1)
+
+    local typed = String.trim(query.text())
+    local matches = Launcher.matching(session.programs(), typed)
+    local count = #matches
+    local index = Math.clamp(picked.int(1), 1, Math.max(count, 1))
+
+    local launch = fn(i: integer)
+      if i >= 1 and i <= count then
+        session.launch(matches[i])
+      end
+    end
+
+    local field = TextField(
+      placeholder: "Search apps",
+      style: TextStyle(Palette.text, 22.0),
+      placeholderStyle: TextStyle(Palette.dimText, 22.0),
+      background: Palette.clear,
+      border: Palette.clear,
+      focusBorder: Palette.clear,
+      padding: EdgeInsets.zero(),
+      autofocus: true,
+      onChanged: fn(text: string)
+        query.set(text)
+        picked.set(1)
+      end,
+      onSubmitted: fn(text: string)
+        launch(index)
+      end
+    )
+
+    local search = HStack(alignment: StackAlignment.Center, spacing: 12.0) do
+      SearchGlyph(Palette.dimText).frame(width: 22.0, height: 22.0)
+      field.expanded()
+    end
+
+    local column: table<View> = {
+      search.padding(insets: EdgeInsets.symmetric(horizontal: 16.0)).frame(
+        height: Palette.launcherRadius * 2.0
+      ),
+    }
+    if typed != "" then
+      Table.insert(column, LauncherView.divider())
+      Table.insert(column, LauncherView.results(matches, index, typed, launch))
+    end
+
+    local fill = StackAlignment.Fill
+    local card = VStack(alignment: fill, children: column).background(
+      Palette.launcher,
+      Palette.launcherRadius,
+      border: Palette.launcherOutline
+    )
+
+    -- Up and Down reach here from the search field, which has no use for
+    -- them; Enter it handles itself, as `onSubmitted`.
+    local keys = fn(e: KeyEvent) -> boolean
+      match e.key
+        case "down" then
+          picked.set(Math.min(index + 1, Math.max(count, 1)))
+          return true
+        case "up" then
+          picked.set(Math.max(index - 1, 1))
+          return true
+        case "escape" then
+          session.closeLauncher()
+          return true
+        case _ then
+          return false
+      end
+    end
+
+    -- A press on the card's own background is the card's, and does
+    -- nothing: without this it would fall through to the backdrop behind,
+    -- which closes the launcher.
+    local nothing = fn()
+    end
+    local held = GestureArea(child: card, onTap: nothing)
+    local placed = VStack(alignment: StackAlignment.Center) do
+      Spacer().frame(height: Palette.launcherTop)
+      KeyboardListener(onKeyDown: keys, child: held).frame(
+        width: Palette.launcherWidth
+      )
+      Spacer()
+    end
+
+    -- Everywhere else is the backdrop: a click there closes the launcher.
+    local close = fn()
+      session.closeLauncher()
+    end
+    return GestureArea(child: placed, onTap: close)
+  end
+
+  -- A hairline between the search bar and the list.
+  static fn divider() -> View
+    local line = Spacer().frame(height: 1.0).background(Palette.launcherOutline)
+    return line.padding(insets: EdgeInsets.symmetric(horizontal: 16.0))
+  end
+
+  -- The apps that match, at most `Palette.launcherRows` of them: the ones
+  -- round the picked one, so moving down a long list keeps it in sight.
+  static fn results(
+    matches: table<Program>,
+    index: integer,
+    typed: string,
+    launch: fn(integer) -> nil
+  ) -> View
+    local rows: table<View> = {}
+    local count = #matches
+
+    if count == 0 then
+      local said = "No apps match “" .. typed .. "”"
+      local none = Text(said).font(15.0).foregroundStyle(Palette.dimText)
+      Table.insert(rows, none.padding(insets: EdgeInsets.all(12.0)))
+    end
+
+    local first = Math.max(index - Palette.launcherRows + 1, 1)
+    local last = Math.min(first + Palette.launcherRows - 1, count)
+    for i = first, last do
+      local row = LauncherRow(matches[i], i == index, fn()
+        launch(i)
+      end)
+      Table.insert(rows, row)
+    end
+
+    local fill = StackAlignment.Fill
+    local list = VStack(alignment: fill, spacing: 2.0, children: rows)
+    return list.padding(insets: EdgeInsets.all(8.0))
+  end
+end

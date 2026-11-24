@@ -1,0 +1,27 @@
+-- The window manager's settings, as Settings shows and changes them.
+-- Copied whole across the process boundary, so it holds only plain values:
+-- the choices that are named (an accent, a wallpaper, where new windows go)
+-- are sent by name, as enums cannot cross yet.
+
+export class WmOptions
+  -- Space between windows, and between them and the screen's edges.
+  gap: float = 4.0
+
+  -- How far into a window the gap next to it can be grabbed.
+  grab: float = 4.0
+
+  -- How much weight one arrow key moves in resize mode.
+  resizeStep: integer = 10
+
+  -- Where the next window goes: "beside" or "below" the focused one.
+  newWindows: string = "beside"
+
+  -- The accent colour, by name: see `Presets.accents`.
+  accent: string = "blue"
+
+  -- How round windows' corners are.
+  corners: float = 8.0
+
+  -- The wallpaper, by name: see `Presets.wallpapers`.
+  wallpaper: string = "dusk"
+end

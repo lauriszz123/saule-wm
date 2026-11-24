@@ -1,0 +1,98 @@
+-- What the pointer grabs to drag the gap between two places of a split
+-- (see `SplitView`). It draws nothing; it is the gap and `Palette.grab`
+-- either side of it, in front of the windows, because a gap is only
+-- `Palette.gap` wide and a window takes every press that lands on it.
+--
+-- It reports the drag and does nothing with it: `SplitView` knows how
+-- pixels turn into weight. Positions are along the split, in the window
+-- manager's own coordinates, so the start and every move compare.
+
+from uikit import *
+
+export class GapHandle extends View
+  horizontal: boolean
+
+  -- The pointer was pressed here, at a position along the split; it moved
+  -- while held; it was let go. Each is given this handle's element.
+  onStart: fn(Element, float) -> nil
+  onMove: fn(Element, float) -> nil
+  onEnd: fn(Element) -> nil
+
+  fn init(
+    horizontal: boolean,
+    onStart: fn(Element, float) -> nil,
+    onMove: fn(Element, float) -> nil,
+    onEnd: fn(Element) -> nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.horizontal = horizontal
+    self.onStart = onStart
+    self.onMove = onMove
+    self.onEnd = onEnd
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  -- Over it, and all through a drag even when the pointer outruns it, the
+  -- pointer is the resize cursor: this sits in front, so it is asked first.
+  fn handleEvent(
+    el: Element,
+    event: PointerEvent,
+    x: float,
+    y: float,
+    inside: boolean
+  ) -> boolean
+    -- `data.dragging`, not a scratch value: it is uikit's own flag for "keep
+    -- telling this element about the pointer", so a fast move that outruns
+    -- the handle in one frame still reaches it.
+    local data = el.data
+    local dragging = data.dragging
+
+    match event.kind
+      case PointerKind.Move then
+        if dragging then
+          self.onMove(el, self.along(event))
+        end
+        if dragging or inside then
+          Cursors.request(self.resizeCursor())
+        end
+        return false
+
+      case PointerKind.Down then
+        if not inside then
+          return false
+        end
+        data.dragging = true
+        self.onStart(el, self.along(event))
+        return true
+
+      case PointerKind.Up then
+        if not dragging then
+          return false
+        end
+        data.dragging = false
+        self.onEnd(el)
+        return true
+
+      case _ then
+        return false
+    end
+  end
+
+  local fn along(event: PointerEvent) -> float
+    if self.horizontal then
+      return event.x
+    end
+    return event.y
+  end
+
+  local fn resizeCursor() -> string
+    if self.horizontal then
+      return "resizeleftright"
+    end
+    return "resizeupdown"
+  end
+end

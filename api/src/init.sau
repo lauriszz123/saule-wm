@@ -1,0 +1,14 @@
+-- wmapi — how other programs talk to the window manager: the settings
+-- service it serves as `saule.wm` (Settings is its client), the values that
+-- cross between them, and the presets both sides name.
+--
+-- Its own package, so an app can depend on it without depending on the
+-- window manager: nothing in here draws or knows about uikit.
+
+export from WmOptions import *
+export from SystemInfo import *
+export from Rgba import *
+export from Preset import *
+export from Presets import *
+export from WmService import *
+export from WmSettings import *

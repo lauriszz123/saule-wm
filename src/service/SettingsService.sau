@@ -1,0 +1,132 @@
+-- What the window manager answers Settings with: the `saule.wm` service
+-- (wmapi's `WmSettings`). A change is applied as it arrives, to the
+-- palette and the session, and the screen redrawn.
+--
+-- Its values come from another process, so each is kept to a sensible
+-- range rather than trusted: a gap of a thousand pixels would leave no
+-- room for windows at all.
+
+import shine
+from uikit import Display
+from "wmapi" import SystemInfo, WmOptions, WmService, WmSettings
+from wm import Session, Split
+from ui import Palette
+
+export class SettingsService implements WmSettings
+  session: Session
+
+  fn init(session: Session)
+    self.session = session
+  end
+
+  -- Serve it, for as long as the window manager runs. Another window
+  -- manager already serving the name (a second one nested inside the
+  -- first) leaves this one without Settings rather than without windows.
+  static fn publish(session: Session) -> nil
+    try
+      WmSettings.publish(WmService.name, SettingsService(session))
+    catch e: string
+      printf("wm: no settings service: %s\n", e)
+    end
+  end
+
+  fn options() -> WmOptions
+    local options = WmOptions()
+    options.gap = Palette.gap
+    options.grab = Palette.grab
+    options.resizeStep = Session.resizeStep
+    options.newWindows = "beside"
+    if self.session.split == Split.Vertical then
+      options.newWindows = "below"
+    end
+    options.accent = Palette.accentName
+    options.corners = Palette.radius
+    options.wallpaper = Palette.wallpaperName
+    return options
+  end
+
+  fn apply(options: WmOptions)
+    Palette.gap = Math.clamp(options.gap, 0.0, 24.0)
+    Palette.grab = Math.clamp(options.grab, 0.0, 12.0)
+    Session.resizeStep = Math.clamp(options.resizeStep, 1, 50)
+    Palette.radius = Math.clamp(options.corners, 0.0, 16.0)
+    Palette.useAccent(options.accent)
+    Palette.useWallpaper(options.wallpaper)
+
+    local split = Split.Horizontal
+    if options.newWindows == "below" then
+      split = Split.Vertical
+    end
+    self.session.splitNext(split)
+    self.session.refresh()
+  end
+
+  fn about() -> SystemInfo
+    local info = SystemInfo()
+    info.saule = Saule.full
+    info.wm = Project.version
+    info.kernel = SettingsService.firstLine("/proc/sys/kernel/osrelease")
+    SettingsService.processor(info)
+    info.memory = SettingsService.memory()
+    info.uptime = SettingsService.uptime()
+    -- In the window manager's own pixels, which its layout uses: on a
+    -- high-density screen there are more of the screen's own.
+    local w, h = Window.getSize()
+    info.screenWidth = Display.toLogical(w as float) as integer
+    info.screenHeight = Display.toLogical(h as float) as integer
+    info.windows = #self.session.clients
+    return info
+  end
+
+  -- The first line of `path`, or "" where there is no such file (on a
+  -- system without `/proc`).
+  static fn firstLine(path: string) -> string
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local line = file!.read("l") ?? ""
+    file!.close()
+    return String.trim(line)
+  end
+
+  -- The processor's name and threads, from `/proc/cpuinfo`: one block per
+  -- thread, each with a "model name : …" line.
+  static fn processor(info: SystemInfo) -> nil
+    local file = Io.open("/proc/cpuinfo", IoMode.Read)
+    if file == nil then
+      return
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+
+    for line in String.split(text, "\n") do
+      if String.starts(line, "model name") then
+        info.cores += 1
+        local parts = String.split(line, ":")
+        if info.processor == "" and #parts > 1 then
+          -- The kernel pads the name with spaces: "CPU N450   @ 1.66GHz".
+          local name = String.trim(parts[2])
+          while String.contains(name, "  ") do
+            name = String.replace(name, "  ", " ")
+          end
+          info.processor = name
+        end
+      end
+    end
+  end
+
+  -- `MemTotal` from `/proc/meminfo`, in kB: "MemTotal:  2041128 kB".
+  static fn memory() -> integer
+    local line = SettingsService.firstLine("/proc/meminfo")
+    local words = String.split(String.trim(String.sub(line, 10)), " ")
+    return (words[1] as integer?) ?? 0
+  end
+
+  -- Whole seconds since boot, from `/proc/uptime`: "8312.54 15873.20".
+  static fn uptime() -> integer
+    local line = SettingsService.firstLine("/proc/uptime")
+    local seconds = (String.split(line, " ")[1] as float?) ?? 0.0
+    return seconds as integer
+  end
+end

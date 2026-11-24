@@ -1,0 +1,28 @@
+-- What Settings' About pane shows: the system, as the window manager sees
+-- it. Copied across the process boundary, so plain values only; anything
+-- that could not be found is empty or 0.
+
+export class SystemInfo
+  -- Saule's version, and the window manager's.
+  saule: string = ""
+  wm: string = ""
+
+  -- The processor's name, e.g. "Intel(R) Atom(TM) CPU N450 @ 1.66GHz",
+  -- and how many threads it runs at once.
+  processor: string = ""
+  cores: integer = 0
+
+  -- The kernel's release, e.g. "6.18.64-saule".
+  kernel: string = ""
+
+  -- Memory, in kB, and how long the system has been up, in seconds.
+  memory: integer = 0
+  uptime: integer = 0
+
+  -- The screen, in the window manager's own pixels.
+  screenWidth: integer = 0
+  screenHeight: integer = 0
+
+  -- How many windows are open, on every workspace.
+  windows: integer = 0
+end

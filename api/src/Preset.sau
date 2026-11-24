@@ -1,0 +1,18 @@
+-- One named choice of colours: an accent (one colour) or a wallpaper (the
+-- three of its wash, then its glow).
+
+from Rgba import Rgba
+
+export class Preset
+  -- What it is sent as, and what Settings shows.
+  name: string
+  title: string
+
+  colours: table<Rgba>
+
+  fn init(name: string, title: string, colours: table<Rgba>)
+    self.name = name
+    self.title = title
+    self.colours = colours
+  end
+end

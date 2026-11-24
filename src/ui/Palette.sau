@@ -1,8 +1,14 @@
 -- The window manager's colours and sizes, in one place.
 
 from uikit import Color
+from "wmapi" import Presets, Rgba
 
 export class Palette
+  -- The accent and the wallpaper, by name (see wmapi's `Presets`): what
+  -- Settings sees and sends. The colours below are theirs.
+  static accentName: string = "blue"
+  static wallpaperName: string = "dusk"
+
   -- The wallpaper: a wash from the top left corner to the bottom right,
   -- through these three, with a warm glow up on the right.
   static wallpaperTop: Color = Color(0.09, 0.12, 0.30)
@@ -17,6 +23,9 @@ export class Palette
   static dimText: Color = Color(1.0, 1.0, 1.0, 0.78)
   static accent: Color = Color(0.48, 0.64, 0.97)
 
+  -- Nothing at all: for a background or border a view must not draw.
+  static clear: Color = Color(0.0, 0.0, 0.0, 0.0)
+
   -- A workspace's button in the bar when it isn't the one on screen.
   static workspace: Color = Color(1.0, 1.0, 1.0, 0.16)
 
@@ -27,10 +36,58 @@ export class Palette
   static focusOutline: Color = Color(0.48, 0.64, 0.97)
   static shadow: float = 0.25
 
+  -- Resize mode's pill in the status bar: warm, so it is not mistaken for
+  -- a workspace.
+  static resizeMode: Color = Color(0.98, 0.64, 0.33)
+
+  -- The launcher (Super+Space), after Spotlight: a dark glass bar a little
+  -- way down the screen, with what matches listed under it as you type.
+  static launcher: Color = Color(0.11, 0.11, 0.14, 0.88)
+  static launcherOutline: Color = Color(1.0, 1.0, 1.0, 0.16)
+  static launcherWidth: float = 600.0
+  static launcherTop: float = 120.0
+  static launcherRadius: float = 26.0
+  static launcherRows: integer = 6
+
+  -- How wide the system menu behind the sun is.
+  static menuWidth: float = 250.0
+
+  -- The tile behind an app's first letter in the launcher's list.
+  static badge: Color = Color(1.0, 1.0, 1.0, 0.18)
+
   -- Sizes.
   static barHeight: float = 28.0
   static padding: float = 12.0
 
   -- Space between windows, and between them and the screen's edges.
   static gap: float = 4.0
+
+  -- How far into the windows either side of a gap the pointer can still
+  -- grab it to resize them: a 4px gap alone is hard to hit, and harder on
+  -- a touchpad.
+  static grab: float = 4.0
+
+  -- Use the accent called `name`: the lit workspace, the focused window's
+  -- outline and the launcher's pick.
+  static fn useAccent(name: string) -> nil
+    local preset = Presets.find(Presets.accents, name)
+    Palette.accentName = preset.name
+    Palette.accent = Palette.colour(preset.colours[1])
+    Palette.focusOutline = Palette.accent
+  end
+
+  -- Use the wallpaper called `name`. `Wallpaper` sees the name change and
+  -- draws it again.
+  static fn useWallpaper(name: string) -> nil
+    local preset = Presets.find(Presets.wallpapers, name)
+    Palette.wallpaperName = preset.name
+    Palette.wallpaperTop = Palette.colour(preset.colours[1])
+    Palette.wallpaperMiddle = Palette.colour(preset.colours[2])
+    Palette.wallpaperBottom = Palette.colour(preset.colours[3])
+    Palette.glow = Palette.colour(preset.colours[4])
+  end
+
+  static fn colour(c: Rgba) -> Color
+    return Color(c.r, c.g, c.b, c.a)
+  end
 end

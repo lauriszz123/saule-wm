@@ -1,0 +1,10 @@
+-- How the window manager can end, as the exit code Saule Linux's init acts
+-- on (see init's session.rs). The window manager runs as `display`, which
+-- may not turn the machine off itself: it ends, and init does the rest.
+-- Anywhere else (nested on a desktop) each of these just ends it.
+
+export class SessionEnd
+  static powerOff: integer = 80
+  static reboot: integer = 81
+  static logOut: integer = 82
+end

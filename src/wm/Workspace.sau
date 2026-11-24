@@ -1,5 +1,8 @@
 -- One screenful of windows, tiled i3-style: a tree of splits (see `Node`),
 -- and the window in it with the keyboard.
+--
+-- A window opened or closed changes only the split it is in: the new place
+-- takes the old one's weight, so nothing else on screen moves.
 
 from Client import Client
 from Direction import Direction
@@ -55,8 +58,11 @@ export class Workspace
       return
     end
 
+    -- The new split takes the focused window's place and weight; inside
+    -- it, the two windows start out even.
     local box = Node.container(split)
     self.replace(target, box)
+    target.weight = Node.unit
     box.insert(target)
     box.insert(window)
   end
@@ -98,14 +104,8 @@ export class Workspace
       return nil
     end
 
-    local split = Split.Vertical
-    if direction == Direction.Left or direction == Direction.Right then
-      split = Split.Horizontal
-    end
-    local step = 1
-    if direction == Direction.Left or direction == Direction.Up then
-      step = -1
-    end
+    local split = direction.axis()
+    local step = direction.step()
 
     local place = node!
     while place.parent != nil do
@@ -122,6 +122,43 @@ export class Workspace
       place = parent
     end
     return nil
+  end
+
+  -- Make `client`'s window bigger or smaller, as i3's resize mode does:
+  -- Right and Down grow it by `amount` of weight, Left and Up shrink it.
+  -- What it grows into is the place next to it, which shrinks by as much.
+  --
+  -- What is resized is the nearest place round the window that sits in a
+  -- split running that way with something beside it. So with a column of
+  -- two windows beside a third, Left and Right resize the whole column.
+  fn resize(client: Client, direction: Direction, amount: integer) -> nil
+    local node = self.find(client)
+    if node == nil then
+      return
+    end
+
+    local grow = amount
+    if direction.step() < 0 then
+      grow = -amount
+    end
+
+    local place = node!
+    while place.parent != nil do
+      local parent = place.parent!
+      local count = #parent.children
+
+      if parent.split == direction.axis() and count > 1 then
+        -- The place after it gives the room, or before it for the last.
+        local index = parent.indexOf(place)
+        local other = parent.children[index + 1]
+        if index == count then
+          other = parent.children[index - 1]
+        end
+        place.takeWeight(other, grow)
+        return
+      end
+      place = parent
+    end
   end
 
   -- Swap `client` with the window next to it the `direction` way.
@@ -157,8 +194,10 @@ export class Workspace
     return root!.find(client)
   end
 
-  -- Put `new` where `old` is.
+  -- Put `new` where `old` is, with its weight: the rest of the split
+  -- keeps the room it had.
   local fn replace(old: Node, new: Node) -> nil
+    new.weight = old.weight
     local parent = old.parent
     if parent == nil then
       self.root = new

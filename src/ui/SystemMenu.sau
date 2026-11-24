@@ -1,0 +1,109 @@
+-- The menu behind the sun, after the Mac's Apple menu: the system, and
+-- leaving it.
+--
+--   About This System
+--   ─────────────────
+--   System Settings…
+--   ─────────────────
+--   Force Quit Settings         ⌥⌘⎋
+--   ─────────────────
+--   Restart…
+--   Shut Down…
+--   ─────────────────
+--   Lock Screen                 ⌃⌘Q
+--   Log Out…
+--
+-- ⌘ is Super. A click anywhere else, or Escape, closes it.
+
+from uikit import *
+-- `Client` too: `session.focused` is one, and its fields need the type.
+from wm import Client, Session
+from Palette import Palette
+from SystemMenuItem import SystemMenuItem
+
+export class SystemMenu extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+
+    local quitting = "Force Quit"
+    local focused = session.focused
+    if focused != nil then
+      quitting = "Force Quit " .. focused!.title
+    end
+
+    local items: table<View> = {
+      SystemMenu.item("About This System", "", true, fn()
+        session.open("about")
+      end),
+      SystemMenu.separator(),
+      SystemMenu.item("System Settings…", "", true, fn()
+        session.open("settings")
+      end),
+      SystemMenu.separator(),
+      SystemMenu.item(quitting, "⌥⌘⎋", focused != nil, fn()
+        session.forceQuit()
+      end),
+      SystemMenu.separator(),
+      SystemMenu.item("Restart…", "", true, fn()
+        session.confirm("restart")
+      end),
+      SystemMenu.item("Shut Down…", "", true, fn()
+        session.confirm("shutDown")
+      end),
+      SystemMenu.separator(),
+      SystemMenu.item("Lock Screen", "⌃⌘Q", true, fn()
+        session.lock()
+      end),
+      SystemMenu.item("Log Out…", "", true, fn()
+        session.confirm("logOut")
+      end),
+    }
+
+    local fill = StackAlignment.Fill
+    local list = VStack(alignment: fill, spacing: 1.0, children: items)
+    local card = list.padding(5.0).background(
+      Palette.launcher,
+      8.0,
+      border: Palette.launcherOutline
+    )
+
+    -- A press on the menu's own background is the menu's, and does
+    -- nothing; anywhere else closes it.
+    local nothing = fn()
+    end
+    local sized = card.frame(width: Palette.menuWidth)
+    local held = GestureArea(child: sized, onTap: nothing)
+    local placed = VStack(alignment: StackAlignment.Leading) do
+      Spacer().frame(height: Palette.barHeight)
+      held.padding(insets: EdgeInsets.only(left: 6.0))
+      Spacer()
+    end
+    local close = fn()
+      session.closeMenu()
+    end
+    return GestureArea(child: placed, onTap: close)
+  end
+
+  static fn item(
+    title: string,
+    shortcut: string,
+    enabled: boolean,
+    pick: fn() -> nil
+  ) -> View
+    return SystemMenuItem(title, shortcut, enabled, pick)
+  end
+
+  -- A hairline between groups of items.
+  static fn separator() -> View
+    local line = Spacer().frame(height: 1.0).background(Palette.launcherOutline)
+    local inset = EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0)
+    return line.padding(insets: inset)
+  end
+end

@@ -1,0 +1,51 @@
+-- One app in the launcher's list: its name, lit when it is the one Enter
+-- would start. Clicking it starts it.
+
+from uikit import *
+from wm import Program
+from Palette import Palette
+
+export class LauncherRow extends View
+  program: Program
+  selected: boolean
+  onLaunch: fn() -> nil
+
+  fn init(
+    program: Program,
+    selected: boolean,
+    onLaunch: fn() -> nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.program = program
+    self.selected = selected
+    self.onLaunch = onLaunch
+  end
+
+  fn body(context: BuildContext) -> View
+    local fill: Color? = nil
+    local text = Palette.dimText
+    if self.selected then
+      fill = Palette.accent
+      text = Palette.text
+    end
+
+    local row = HStack(alignment: StackAlignment.Center, spacing: 10.0) do
+      LauncherRow.badge(self.program.name)
+      Text(self.program.name).font(15.0).foregroundStyle(text)
+      Spacer()
+    end
+
+    local inset = EdgeInsets.symmetric(horizontal: 12.0, vertical: 7.0)
+    local shown = row.padding(insets: inset).background(fill, 8.0)
+    return GestureArea(child: shown, onTap: self.onLaunch)
+  end
+
+  -- An app has no icon of its own yet, so it gets a tile with its first
+  -- letter on it.
+  static fn badge(name: string) -> View
+    local letter = Text(String.sub(name, 1, 1)).font(12.0)
+    local shown = letter.foregroundStyle(Palette.text).centered()
+    return shown.frame(width: 22.0, height: 22.0).background(Palette.badge, 6.0)
+  end
+end

@@ -1,0 +1,179 @@
+-- Something that comes and goes over the whole screen with a motion: the
+-- launcher, the lock screen. Always in place, and empty while it is away.
+-- Coming, it fades in while its size settles from `startScale` to its
+-- own; going, the same backwards, and only then is it let go of, so it
+-- comes back fresh the next time.
+--
+-- The motion is painted, not built: the content is drawn into an image
+-- once as the motion starts, and each frame of it draws that image faded
+-- and scaled. Nothing is rebuilt or redrawn, which on a netbook is the
+-- difference between a motion and a jump; once it has fully arrived the
+-- content is drawn straight onto the screen again.
+--
+--   Transition(
+--     shown: fn() return session.launching end,
+--     content: fn() return LauncherView(session) end,
+--     duration: 0.16,
+--     startScale: 0.96,      -- grows into place
+--     anchorY: 146.0         -- about the search bar, not the middle
+--   )
+
+import shine
+from uikit import *
+
+export class Transition extends View
+  -- Whether it should be on screen, asked every frame.
+  shown: fn() -> boolean
+
+  -- What it shows, built when it comes.
+  content: fn() -> View
+
+  -- How long coming and going take, in seconds.
+  duration: float
+
+  -- The most one frame moves the motion on, in seconds. A frame slower than
+  -- this (the one that builds the content, on a slow machine) would
+  -- otherwise use up the whole motion at once, and it would jump rather
+  -- than move: so a slow frame slows the motion down instead.
+  static maxStep: float = 1.0 / 30.0
+
+  -- Its size at the start of coming (and the end of going), from 1: under
+  -- 1 it grows into place, over 1 it shrinks into place.
+  startScale: float
+
+  -- How far down it grows or shrinks about; its middle when nil. Across,
+  -- always its middle.
+  anchorY: float?
+
+  fn init(
+    shown: fn() -> boolean,
+    content: fn() -> View,
+    duration: float,
+    startScale: float,
+    anchorY: float? = nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.shown = shown
+    self.content = content
+    self.duration = duration
+    self.startScale = startScale
+    self.anchorY = anchorY
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  fn tick(el: Element, dt: float) -> nil
+    local motion = self.motion(el.data.scratch)
+    if motion.step(Math.min(dt, Transition.maxStep)) then
+      Repaint.request()
+    end
+
+    -- At rest, all the way in or out: the next motion draws the content
+    -- afresh.
+    if motion.value <= 0.0 or motion.value >= 1.0 then
+      el.data.scratch.drawn = false
+    end
+
+    -- Gone all the way: build again, without the content.
+    local built = el.data.scratch.built == true
+    if built and not self.shown() and motion.value <= 0.0 then
+      el.markNeedsBuild()
+    end
+  end
+
+  fn body(context: BuildContext) -> View
+    local scratch = context.data().scratch
+    local motion = self.motion(scratch)
+    local built = self.shown() or motion.value > 0.0
+    scratch.built = built
+
+    if not built then
+      return Spacer()
+    end
+    return self.content()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local t = self.motion(el.data.scratch).value
+    if t >= 1.0 then
+      el.paintChildren(x, y)
+      return
+    end
+    if t <= 0.0 then
+      return
+    end
+
+    -- The image is in the screen's own pixels, not the window manager's:
+    -- on a high-density screen text is drawn at the screen's size, so an
+    -- image at the window manager's would show it twice as big.
+    local density = Display.scale()
+    local w = el.size.width
+    local h = el.size.height
+    local pw = (w * density) as integer
+    local ph = (h * density) as integer
+    local image = Transition.canvasFor(el, pw, ph)
+
+    -- The content into the image, at the image's origin: once a motion.
+    if el.data.scratch.drawn != true then
+      el.data.scratch.drawn = true
+      local sx, sy, sw, sh = Graphics.getScissor()
+      Graphics.setCanvas(image)
+      Graphics.push()
+      Graphics.origin()
+      Graphics.setScissor(0.0, 0.0, pw as float, ph as float)
+      Graphics.clear(0.0, 0.0, 0.0, 0.0)
+      Graphics.scale(density, density)
+      Graphics.translate(-x, -y)
+      el.paintChildren(x, y)
+      Graphics.pop()
+      Graphics.setCanvas()
+      Graphics.setScissor(sx, sy, sw, sh)
+    end
+
+    -- A motion with no change of size is a fade: the image as it is, at
+    -- the screen's pixels, which is a plain copy and the fastest thing
+    -- Shine draws. Scaling has to sample every pixel between its
+    -- neighbours, which a netbook can't do across the screen every frame.
+    Graphics.setColor(1.0, 1.0, 1.0, t)
+    if self.startScale == 1.0 and density == 1.0 then
+      Graphics.draw(image, x, y)
+      Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+      return
+    end
+
+    -- Otherwise faded by `t` and sized about its anchor, and brought back
+    -- from the screen's pixels to the window manager's.
+    local start = self.startScale
+    local scale = (start + (1.0 - start) * t) / density
+    local cx = w / 2.0
+    local cy = self.anchorY ?? h / 2.0
+    local ox = cx * density
+    local oy = cy * density
+    Graphics.draw(image, x + cx, y + cy, 0.0, scale, scale, ox, oy)
+    Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+  end
+
+  -- How far it has come, 0 to 1, heading in or out as `shown` says.
+  local fn motion(scratch: table) -> AnimationController
+    return motionOn(scratch, "shown", self.shown(), self.duration)
+  end
+
+  -- One image for the motion, `w` by `h` screen pixels, kept while the
+  -- screen keeps its size.
+  static fn canvasFor(el: Element, w: integer, h: integer) -> Canvas
+    local scratch = el.data.scratch
+    local image = scratch.image as Canvas?
+    local same = w == (scratch.w as integer?) and h == (scratch.h as integer?)
+    if image == nil or not same then
+      image = Graphics.newCanvas(w, h)
+      scratch.image = image
+      scratch.w = w
+      scratch.h = h
+    end
+    return image!
+  end
+end

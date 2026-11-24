@@ -1,0 +1,41 @@
+-- Saule's mark, where a Mac has its apple: a white sun, a disc with eight
+-- rays round it. Drawn, as the window manager ships no font files. It
+-- fills the square it is given.
+
+import shine
+from uikit import *
+
+export class SunLogo extends View
+  colour: Color
+
+  fn init(colour: Color, key: string? = nil)
+    self.super(key)
+    self.colour = colour
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local s = Math.min(el.size.width, el.size.height)
+    local cx = x + el.size.width / 2.0
+    local cy = y + el.size.height / 2.0
+
+    self.colour.apply()
+    Graphics.circle("fill", cx, cy, s * 0.22)
+
+    -- The rays: short strokes pointing out, clear of the disc.
+    Graphics.setLineWidth(Math.max(s * 0.09, 1.2))
+    for i = 0, 7 do
+      local angle = Math.pi * (i as float) / 4.0
+      local dx = Math.cos(angle)
+      local dy = Math.sin(angle)
+      local near = s * 0.33
+      local far = s * 0.48
+      local x1 = cx + dx * near
+      local y1 = cy + dy * near
+      Graphics.line(x1, y1, cx + dx * far, cy + dy * far)
+    end
+  end
+end

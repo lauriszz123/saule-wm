@@ -1,6 +1,6 @@
 -- The whole screen: the wallpaper, the status bar along the top, and the
 -- windows of the workspace on screen below it, tiled with a gap around
--- each.
+-- each. The launcher, when it is open, goes over all of it.
 
 from uikit import *
 from wm import Changed, Direction, Node, Session, Split
@@ -8,6 +8,12 @@ from Palette import Palette
 from Wallpaper import Wallpaper
 from StatusBar import StatusBar
 from ClientWindow import ClientWindow
+from SplitView import SplitView
+from LauncherView import LauncherView
+from Transition import Transition
+from SystemMenu import SystemMenu
+from ConfirmDialog import ConfirmDialog
+from LockScreen import LockScreen
 
 export class Desktop extends View
   session: Session
@@ -25,9 +31,20 @@ export class Desktop extends View
   end
 
   -- Each frame, take in what the apps did: rebuild when windows came or
-  -- went, just repaint when only their pixels changed.
+  -- went or a setting changed, just repaint when only their pixels did.
   fn tick(el: Element, dt: float) -> nil
+    -- Restart, Shut Down or Log Out was confirmed: end, and the session's
+    -- exit code tells init which (see `SessionEnd`).
+    if self.session.exitCode != 0 then
+      App.quit()
+      return
+    end
+
     self.session.start(self.apps)
+
+    -- Answer what other programs asked since the last frame (Settings,
+    -- through `SettingsService`), without waiting for more.
+    Looper.dispatch(0)
 
     match self.session.poll()
       case Changed.Windows then el.markNeedsBuild()
@@ -44,11 +61,26 @@ export class Desktop extends View
       Desktop.windows(session).padding(Palette.gap).expanded()
     end
 
+    -- Over the windows: the launcher, the system menu, a question, and
+    -- the lock screen over everything. The launcher and the lock screen
+    -- come and go with a motion, so their layers are always there (see
+    -- `Transition`).
+    local launcher = Desktop.cover(Desktop.launcher(session), "launcher")
+    local layers: table<View> = {screen, launcher}
+    if session.menuOpen then
+      Table.insert(layers, Desktop.cover(SystemMenu(session), "menu"))
+    end
+    if session.confirming != "" then
+      Table.insert(layers, Desktop.cover(ConfirmDialog(session), "confirm"))
+    end
+    Table.insert(layers, Desktop.cover(Desktop.lockScreen(session), "lock"))
+
     local shortcuts = fn(e: KeyEvent) -> boolean
       return Desktop.shortcut(session, e)
     end
 
-    local desktop = KeyboardListener(onKeyDown: shortcuts, child: screen)
+    local all = ZStack(children: layers)
+    local desktop = KeyboardListener(onKeyDown: shortcuts, child: all)
     return Wallpaper(child: desktop)
   end
 
@@ -58,6 +90,10 @@ export class Desktop extends View
   --   Super + arrows            the keyboard to the window that way
   --   Super + Shift + arrows    swap the window with the one that way
   --   Super + H / V             the next window goes beside / below
+  --   Super + R                 resize mode (see `resizeKey`)
+  --   Super + Space / D         the launcher
+  --   Super + Ctrl + Q          lock the screen
+  --   Super + Alt + Escape      force quit the window's app
   --   Super + 1…4               that workspace
   --   Super + Shift + 1…4       send the window to that workspace
   --   Super + Shift + Q         close the window
@@ -68,8 +104,34 @@ export class Desktop extends View
       return true
     end
 
+    -- The lock screen, a question or the system menu has the keyboard.
+    if session.locked or session.confirming != "" or session.menuOpen then
+      return Desktop.overlayKey(session, e)
+    end
+
+    if session.resizing then
+      return Desktop.resizeKey(session, e)
+    end
+
     if not e.meta then
       return false
+    end
+
+    if e.key == "space" or e.key == "d" then
+      session.toggleLauncher()
+      return true
+    end
+    if e.key == "r" then
+      session.toggleResizing()
+      return true
+    end
+    if e.ctrl and e.key == "q" then
+      session.lock()
+      return true
+    end
+    if e.alt and e.key == "escape" then
+      session.forceQuit()
+      return true
     end
 
     local direction = Desktop.direction(e.key)
@@ -108,6 +170,87 @@ export class Desktop extends View
     return false
   end
 
+  -- Resize mode, as in i3: every key is the window manager's until it
+  -- ends, so a stray letter does not reach the app.
+  --
+  --   arrows                    Right / Down grow the window, Left / Up
+  --                             shrink it
+  --   Escape, Enter, Super + R  done
+  static fn resizeKey(session: Session, e: KeyEvent) -> boolean
+    local direction = Desktop.direction(e.key)
+    if direction != nil then
+      session.resize(direction!)
+    elseif e.key == "escape" or e.key == "return" or e.key == "r" then
+      session.toggleResizing()
+    end
+    return true
+  end
+
+  -- A key while the lock screen, a question or the system menu is up:
+  -- all of them are the window manager's, so none reaches an app.
+  --
+  --   locked        Enter unlocks
+  --   a question    Enter does it, Escape doesn't
+  --   the menu      Escape closes it
+  static fn overlayKey(session: Session, e: KeyEvent) -> boolean
+    if session.locked then
+      if e.key == "return" then
+        session.unlock()
+      end
+    elseif session.confirming != "" then
+      if e.key == "return" then
+        session.confirmed()
+      elseif e.key == "escape" then
+        session.cancelConfirm()
+      end
+    elseif e.key == "escape" then
+      session.closeMenu()
+    end
+    return true
+  end
+
+  -- The launcher, settling in as Spotlight does: fading in and growing
+  -- the last few percent about its search bar.
+  static fn launcher(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.launching
+    end
+    local content = fn() -> View
+      return LauncherView(session)
+    end
+    local bar = Palette.launcherTop + Palette.launcherRadius
+    return Transition(shown, content, 0.16, 0.96, anchorY: bar)
+  end
+
+  -- The lock screen, as a Mac's: locking fades it in over the desktop;
+  -- unlocking fades it out, and the desktop is there behind it. A fade
+  -- only, without the launcher's change of size: across the whole screen,
+  -- that is more than a netbook can draw smoothly.
+  static fn lockScreen(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.locked
+    end
+    local content = fn() -> View
+      return LockScreen(session)
+    end
+    return Transition(shown, content, 0.35, 1.0)
+  end
+
+  -- `view` over the whole screen, as the layer called `name`. Named, so
+  -- that it stays the same layer when one before it comes or goes: the
+  -- system menu closes as the screen locks, and a lock screen taken for a
+  -- new layer would start its motion already finished.
+  static fn cover(view: View, name: string) -> View
+    return Positioned(
+      left: 0.0,
+      top: 0.0,
+      right: 0.0,
+      bottom: 0.0,
+      child: view,
+      key: name
+    )
+  end
+
   static fn direction(key: string) -> Direction?
     match key
       case "left" then
@@ -143,26 +286,17 @@ export class Desktop extends View
   end
 
   -- A place in the tree: a window, or a split of places side by side or
-  -- one above another, sharing the room equally.
+  -- one above another, sharing the room by weight (see `SplitView`).
   static fn tile(node: Node, session: Session) -> View
     local client = node.client
     if client != nil then
       return ClientWindow(client!, session, key: tostring(client!.id))
     end
 
-    local fill = StackAlignment.Fill
-    if node.split == Split.Horizontal then
-      return HStack(alignment: fill, spacing: Palette.gap) do
-        for child in node.children do
-          Desktop.tile(child, session).expanded()
-        end
-      end
+    local places: table<View> = {}
+    for child in node.children do
+      Table.insert(places, Desktop.tile(child, session))
     end
-
-    return VStack(alignment: fill, spacing: Palette.gap) do
-      for child in node.children do
-        Desktop.tile(child, session).expanded()
-      end
-    end
+    return SplitView(node, places)
   end
 end

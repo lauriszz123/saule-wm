@@ -3,7 +3,10 @@
 --
 -- Working a gradient out over the whole screen takes a netbook a good part
 -- of a frame, so it's drawn once into an image, and again only when the
--- screen changes size. Each frame just copies that image.
+-- screen changes size or Settings picks another wallpaper. Each frame just
+-- copies that image. The image is shared: the lock screen shows the same
+-- wallpaper, and drawing it a second time as the screen locks is the
+-- slowest thing that frame would do.
 
 import shine
 from uikit import *
@@ -11,6 +14,12 @@ from Palette import Palette
 from Gradient import Gradient
 
 export class Wallpaper extends SingleChildView
+  -- The wallpaper as last drawn, the size it was drawn at, and which.
+  static local image: Canvas? = nil
+  static local w: integer = 0
+  static local h: integer = 0
+  static local name: string = ""
+
   fn init(child: View? = nil, key: string? = nil)
     self.super(child, key)
   end
@@ -31,19 +40,19 @@ export class Wallpaper extends SingleChildView
   fn paint(el: Element, x: float, y: float) -> nil
     local w = el.size.width as integer
     local h = el.size.height as integer
-    local scratch = el.data.scratch
-    local image = scratch.image as Canvas?
-
-    if image == nil or w != (scratch.w as integer?) or h != (scratch.h as integer?) then
-      image = Wallpaper.render(w, h)
-      scratch.image = image
-      scratch.w = w
-      scratch.h = h
+    local name = Palette.wallpaperName
+    local resized = w != Wallpaper.w or h != Wallpaper.h
+    if Wallpaper.image == nil or resized or name != Wallpaper.name then
+      Wallpaper.image = Wallpaper.render(w, h)
+      Wallpaper.w = w
+      Wallpaper.h = h
+      Wallpaper.name = name
     end
+    local image = Wallpaper.image!
 
     -- Shine tints an image with the current colour: white leaves it be.
     Graphics.setColor(1.0, 1.0, 1.0)
-    Graphics.draw(image!, x, y)
+    Graphics.draw(image, x, y)
     el.paintChildren(x, y)
   end
 

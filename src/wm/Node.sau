@@ -6,17 +6,32 @@
 --     └── split (one above another)
 --         ├── window: Terminal
 --         └── window: Shine demo
+--
+-- The places in a split share its room by weight: two at 100 get half
+-- each, and resizing moves weight from one place to its neighbour.
 
 from Client import Client
 from Split import Split
 
 export class Node
+  -- The weight a new place starts with: large enough that a resize step
+  -- (see `Workspace.resize`) is a small share of it. Weights are whole
+  -- numbers so that moving some from one place to another is exact, and a
+  -- split's total never drifts however often it is resized.
+  static unit: integer = 100
+
+  -- The least weight a place keeps, so resizing never squeezes one away.
+  static minimum: integer = 20
+
   -- The window, when this place is one.
   client: Client?
 
   -- For a split: which way its places run, and what they are, in order.
   split: Split
   children: table<Node>
+
+  -- Its share of the split it is in, against its siblings' weights.
+  weight: integer
 
   -- The split this place is in; nil at the top.
   parent: Node?
@@ -25,6 +40,7 @@ export class Node
     self.client = client
     self.split = split
     self.children = {}
+    self.weight = Node.unit
     self.parent = nil
   end
 
@@ -44,6 +60,27 @@ export class Node
   fn insert(node: Node, index: integer? = nil) -> nil
     node.parent = self
     Table.insert(self.children, node, index ?? #self.children + 1)
+  end
+
+  -- Move `amount` of weight from `other` to this place, or the other way
+  -- when it is negative. Both keep at least `Node.minimum`, so the move
+  -- stops short when one would go below it; their sum never changes, and
+  -- neither does anything else in the split.
+  fn takeWeight(other: Node, amount: integer) -> nil
+    local most = other.weight - Node.minimum
+    local least = Node.minimum - self.weight
+    local moved = Math.clamp(amount, least, most)
+    self.weight += moved
+    other.weight -= moved
+  end
+
+  -- The weight of everything in this split.
+  fn totalWeight() -> integer
+    local total = 0
+    for child in self.children do
+      total += child.weight
+    end
+    return total
   end
 
   -- Where `child` is in this split, from 1; 0 when it isn't here.

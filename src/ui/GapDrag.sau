@@ -1,0 +1,21 @@
+-- A gap between two places being dragged (see `SplitView`): which gap,
+-- where the pointer was pressed, and the two places' weights then.
+
+export class GapDrag
+  -- The gap, as the number of the place before it.
+  gap: integer
+
+  -- Where the press was, along the split.
+  start: float
+
+  -- The weights of the places before and after the gap at the press.
+  before: integer
+  after: integer
+
+  fn init(gap: integer, start: float, before: integer, after: integer)
+    self.gap = gap
+    self.start = start
+    self.before = before
+    self.after = after
+  end
+end

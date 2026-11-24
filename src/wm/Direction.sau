@@ -1,8 +1,34 @@
 -- A way to move on the screen: what the arrow keys pick between.
 
+from Split import Split
+
 export enum Direction
   Left,
   Right,
   Up,
   Down
+
+  -- The split that runs this way: side by side for left and right, one
+  -- above another for up and down.
+
+  fn axis() -> Split
+    return match self
+      case Direction.Left then Split.Horizontal
+      case Direction.Right then Split.Horizontal
+      case Direction.Up then Split.Vertical
+      case Direction.Down then Split.Vertical
+    end
+  end
+
+  -- Which way along a split this goes: -1 towards its start, 1 towards
+  -- its end.
+
+  fn step() -> integer
+    return match self
+      case Direction.Left then -1
+      case Direction.Right then 1
+      case Direction.Up then -1
+      case Direction.Down then 1
+    end
+  end
 end

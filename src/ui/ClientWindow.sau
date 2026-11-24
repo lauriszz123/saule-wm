@@ -1,6 +1,7 @@
 -- An app's window with the keyboard: what has focus here, the app gets.
 -- The keyboard follows the session: when a shortcut gives a window the
--- keyboard, this takes it.
+-- keyboard, this takes it. While the launcher is open or the session is
+-- in resize mode, the keyboard is the window manager's instead.
 
 import shine
 from uikit import *
@@ -26,12 +27,20 @@ export class ClientWindow extends View
   -- just put on screen isn't ready to take it on its first frame, so this
   -- asks each frame until it has it, rather than once.
   fn tick(el: Element, dt: float) -> nil
-    if self.session.focused != self.client then
+    local node = nodeFor(el.data)
+
+    -- While the window manager has the keyboard (the launcher, the system
+    -- menu, a question, the lock screen), let go of it: the launcher's
+    -- search field only takes it while nothing else has it, and the rest
+    -- hear keys nothing has taken. It comes back here when they close.
+    if self.session.ownsKeyboard() then
+      if node.hasFocus() then
+        node.unfocus()
+      end
       return
     end
 
-    local node = nodeFor(el.data)
-    if not node.hasFocus() then
+    if self.session.focused == self.client and not node.hasFocus() then
       node.requestFocus()
     end
   end
@@ -46,15 +55,16 @@ export class ClientWindow extends View
       node: node,
       wantsText: true,
       onKeyDown: fn(e: KeyEvent) -> boolean
-        return ClientWindow.forwardKey(id, e, true)
+        return ClientWindow.forwardKey(session, id, e, true)
       end,
       onKeyUp: fn(e: KeyEvent) -> boolean
-        return ClientWindow.forwardKey(id, e, false)
+        return ClientWindow.forwardKey(session, id, e, false)
       end,
       onText: fn(text: string) -> boolean
         -- Typed with Super held, it was a shortcut (Super+Shift+2 types
-        -- "@"): not the app's.
-        if Keyboard.isAnyDown({"lgui", "rgui"}) then
+        -- "@"); typed in resize mode, it was a stray key. Neither is the
+        -- app's.
+        if Keyboard.isAnyDown({"lgui", "rgui"}) or session.resizing then
           return false
         end
         Compositor.sendText(id, text)
@@ -76,9 +86,14 @@ export class ClientWindow extends View
   end
 
   -- Pass a key on to the app, except the window manager's own shortcuts,
-  -- which go on up to the desktop.
-  static fn forwardKey(id: integer, e: KeyEvent, down: boolean) -> boolean
-    if e.meta or (e.ctrl and e.alt) then
+  -- and every key in resize mode, which go on up to the desktop.
+  static fn forwardKey(
+    session: Session,
+    id: integer,
+    e: KeyEvent,
+    down: boolean
+  ) -> boolean
+    if e.meta or (e.ctrl and e.alt) or session.resizing then
       return false
     end
 

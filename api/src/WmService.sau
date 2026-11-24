@@ -1,0 +1,6 @@
+-- The name the window manager serves `WmSettings` under, in one place for
+-- both sides.
+
+export class WmService
+  static name: string = "saule.wm"
+end

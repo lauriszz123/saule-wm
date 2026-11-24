@@ -6,8 +6,12 @@ saule-wm: the Saule Linux display server and window manager.
 
 The code is layered; each folder only uses the ones above it:
 
-    wm    what it does: the apps' windows, starting apps. No drawing.
-    ui    how it looks, as uikit views: desktop, status bar, windows
+    wm       what it does: the apps' windows, starting apps. No drawing.
+    ui       how it looks, as uikit views: desktop, status bar, windows
+    service  what it does for other programs: Settings' `saule.wm`
+
+  The settings service's interface is its own package, api/ (`wmapi`), so
+  an app can use it without depending on the window manager.
 ]]
 
 -- `App` too: `run` is inherited from it.
@@ -16,6 +20,12 @@ from WindowManagerApp import WindowManagerApp
 
 class Main
   static fn main()
-    WindowManagerApp(Os.args()).run()
+    local app = WindowManagerApp(Os.args())
+    app.run()
+
+    -- Restart, Shut Down and Log Out end the app with a code for init.
+    if app.session.exitCode != 0 then
+      Os.exit(app.session.exitCode)
+    end
   end
 end

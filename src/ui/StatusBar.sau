@@ -2,16 +2,20 @@
 -- Like a Mac's menu bar it has no background of its own: the wallpaper
 -- shows through, darkened along the top edge (see `Wallpaper`).
 --
---   ● Saule  [1] 2  3   Saule Maker              Tue 24 Nov  14:05
+--   ☀  [1] 2  3   Saule Maker                     Tue 24 Nov  14:05
 --
--- The workspaces are i3's: the one on screen lit, the others that have
--- windows shown, the empty ones left out. Click one to go there.
+-- The sun is where a Mac has its apple: clicking it opens the system
+-- menu (see `SystemMenu`). The workspaces are i3's: the one on screen
+-- lit, the others that have windows shown, the empty ones left out. Click
+-- one to go there. In resize mode a pill after them says so, and how to
+-- get out.
 
 from uikit import *
 -- `Client` too: `session.focused` is one, and its fields need the type.
 from wm import Client, Session
 from Palette import Palette
 from Clock import Clock
+from SunLogo import SunLogo
 
 export class StatusBar extends View
   session: Session
@@ -23,7 +27,6 @@ export class StatusBar extends View
 
   fn body(context: BuildContext) -> View
     local session = self.session
-    local logo = Spacer().frame(width: 10.0, height: 10.0)
 
     local title = ""
     if session.focused != nil then
@@ -31,9 +34,11 @@ export class StatusBar extends View
     end
 
     local row = HStack(spacing: 10.0) do
-      logo.background(Palette.accent, 5.0)
-      Text("Saule").font(14.0).foregroundStyle(Palette.text)
+      StatusBar.sun(session)
       StatusBar.workspaces(session)
+      if session.resizing then
+        StatusBar.resizing()
+      end
       Text(title).font(13.0).foregroundStyle(Palette.dimText)
       Spacer()
       Clock()
@@ -41,6 +46,21 @@ export class StatusBar extends View
 
     local inset = EdgeInsets.symmetric(horizontal: Palette.padding)
     return row.padding(insets: inset).frame(height: Palette.barHeight)
+  end
+
+  -- The sun, lit while its menu is open, as a Mac lights its apple.
+  static fn sun(session: Session) -> View
+    local fill: Color? = nil
+    if session.menuOpen then
+      fill = Palette.workspace
+    end
+    local logo = SunLogo(Palette.text).frame(width: 18.0, height: 18.0)
+    local inset = EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0)
+    local shown = logo.padding(insets: inset).background(fill, 5.0)
+    local open = fn()
+      session.toggleMenu()
+    end
+    return GestureArea(child: shown, onTap: open)
   end
 
   static fn workspaces(session: Session) -> View
@@ -56,6 +76,18 @@ export class StatusBar extends View
           GestureArea(child: StatusBar.workspace(number, shown), onTap: go)
         end
       end
+    end
+  end
+
+  -- Resize mode's pill, and how to get out of it.
+  static fn resizing() -> View
+    local label = Text("Resize").font(12.0).foregroundStyle(Palette.text)
+    local inset = EdgeInsets.symmetric(horizontal: 7.0, vertical: 1.0)
+    local pill = label.padding(insets: inset)
+    local hint = Text("arrows to resize, Esc when done")
+    return HStack(spacing: 6.0) do
+      pill.background(Palette.resizeMode, 5.0)
+      hint.font(12.0).foregroundStyle(Palette.dimText)
     end
   end
 

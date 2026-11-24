@@ -1,22 +1,124 @@
+-- Starting apps: everything at once when the window manager starts, and
+-- one at a time from the launcher (Super+Space).
+--
+-- The apps are the programs in `/bin/apps`, as on Saule Linux, and any
+-- given on the command line (`saule run . some/app`), which is how to have
+-- some to start where there is no `/bin/apps`.
+
+from Program import Program
+
 export class Launcher
-  static fn startApps(apps: string[])
-    println("wm: attempting to start apps...")
+  -- Where Saule Linux keeps its apps.
+  static folder: string = "/bin/apps"
 
-    if #apps == 0 and Os.exists("/bin/apps") then
-      for name in Os.list("/bin/apps") do
-        Table.insert(apps, "/bin/apps/" .. name)
-      end
+  -- The apps started from here that may still be running: what Force
+  -- Quit ends. They are this process's children, so it can.
+  static local running: table<Process> = {}
+
+  -- Start `apps` as the window manager starts, or everything in
+  -- `Launcher.folder` when none were given.
+  static fn startApps(apps: table<string>) -> nil
+    local paths = apps
+    if #paths == 0 then
+      paths = Launcher.installed()
     end
 
-    for app in apps do
-      printf("wm: starting %s\n", app)
-      if Os.spawn(app) == nil then
-        printf("wm: could not start %s\n", app)
-      end
+    for path in paths do
+      Launcher.start(Program(path))
     end
 
-    if #apps == 0 then
+    if #paths == 0 then
       println("wm: no apps started")
+    end
+  end
+
+  -- Every app there is to start: `given` (the command line's), then the
+  -- installed ones, each once, sorted by name.
+  static fn programs(given: table<string>) -> table<Program>
+    local out: table<Program> = {}
+    local seen: table<string, boolean> = {}
+
+    for path in given do
+      Launcher.addOnce(out, seen, path)
+    end
+    for path in Launcher.installed() do
+      Launcher.addOnce(out, seen, path)
+    end
+
+    Table.sort(out, fn(a: Program, b: Program) -> boolean
+      return String.lower(a.name) < String.lower(b.name)
+    end)
+    return out
+  end
+
+  -- The programs whose names hold `query`, ignoring case: those that
+  -- start with it first, as Spotlight puts them, then the rest. An empty
+  -- query matches everything.
+  static fn matching(programs: table<Program>, query: string) -> table<Program>
+    local wanted = String.lower(String.trim(query))
+    local starts: table<Program> = {}
+    local contains: table<Program> = {}
+
+    for program in programs do
+      local name = String.lower(program.name)
+      if String.starts(name, wanted) then
+        Table.insert(starts, program)
+      elseif String.contains(name, wanted) then
+        Table.insert(contains, program)
+      end
+    end
+
+    for program in contains do
+      Table.insert(starts, program)
+    end
+    return starts
+  end
+
+  -- Start `program`. False when it could not be started.
+  static fn start(program: Program) -> boolean
+    printf("wm: starting %s\n", program.path)
+    local process = Os.spawn(program.path)
+    if process == nil then
+      printf("wm: could not start %s\n", program.path)
+      return false
+    end
+    Table.insert(Launcher.running, process!)
+    return true
+  end
+
+  -- End the app with process id `pid` at once, without asking it: Force
+  -- Quit. False when it is not one started here.
+  static fn forceQuit(pid: integer) -> boolean
+    for i = 1, #Launcher.running do
+      local process = Launcher.running[i]
+      if process.pid() == pid then
+        Table.remove(Launcher.running, i)
+        return process.kill()
+      end
+    end
+    return false
+  end
+
+  -- The programs in `Launcher.folder`, or none when there is no such
+  -- folder.
+  static fn installed() -> table<string>
+    local out: table<string> = {}
+    if Os.exists(Launcher.folder) then
+      for name in Os.list(Launcher.folder) do
+        Table.insert(out, Launcher.folder .. "/" .. name)
+      end
+    end
+    return out
+  end
+
+  static fn addOnce(
+    out: table<Program>,
+    seen: table<string, boolean>,
+    path: string
+  ) -> nil
+    if seen[path] == nil then
+      seen[path] = true
+      Table.insert(out, Program(path))
     end
   end
 end

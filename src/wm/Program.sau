@@ -1,0 +1,33 @@
+-- An app the launcher can start: the program file, and the name it shows.
+
+export class Program
+  -- The program to run, as `Os.spawn` takes it.
+  path: string
+
+  -- What the launcher lists it as: the file's name without its folder or
+  -- extension, first letter in capitals — "/bin/apps/terminal" is
+  -- "Terminal".
+  name: string
+
+  fn init(path: string)
+    self.path = path
+    self.name = Program.nameOf(path)
+  end
+
+  static fn nameOf(path: string) -> string
+    local parts = String.split(path, "/")
+    local file = parts[#parts]
+
+    -- Up to the last dot, if there is one past the first letter: a
+    -- leading dot is part of the name.
+    local stem = file
+    for i = String.len(file), 2, -1 do
+      if String.sub(file, i, i) == "." then
+        stem = String.sub(file, 1, i - 1)
+        break
+      end
+    end
+
+    return String.upper(String.sub(stem, 1, 1)) .. String.sub(stem, 2)
+  end
+end

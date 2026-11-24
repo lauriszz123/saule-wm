@@ -1,0 +1,77 @@
+-- "Are you sure?" before the session ends, as a Mac asks before it
+-- restarts or shuts down: a small card in the middle of the screen, the
+-- sun, the question, and Cancel beside the action. Enter does it, Escape
+-- or Cancel doesn't (see `Desktop.overlayKey`).
+
+from uikit import *
+from wm import Session
+from Palette import Palette
+from SunLogo import SunLogo
+
+export class ConfirmDialog extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local question = "Are you sure you want to shut down your computer now?"
+    local action = "Shut Down"
+    match session.confirming
+      case "restart" then
+        question = "Are you sure you want to restart your computer now?"
+        action = "Restart"
+      case "logOut" then
+        question = "Are you sure you want to quit all apps and log out now?"
+        action = "Log Out"
+      case _ then nil
+    end
+
+    local cancel = fn()
+      session.cancelConfirm()
+    end
+    local go = fn()
+      session.confirmed()
+    end
+
+    local buttons = HStack(spacing: 8.0) do
+      ConfirmDialog.button("Cancel", Palette.workspace, cancel)
+      ConfirmDialog.button(action, Palette.accent, go)
+    end
+
+    local text = Text(question).font(13.0).foregroundStyle(Palette.text)
+    local centred = text.multilineTextAlignment(TextAlign.Center)
+    -- As tall as what is in it: a card, not a column down the screen.
+    local fit = StackSize.Fit
+    local center = StackAlignment.Center
+    local card = VStack(alignment: center, sizing: fit, spacing: 12.0) do
+      SunLogo(Palette.text).frame(width: 44.0, height: 44.0)
+      centred.lineLimit(3)
+      show(buttons)
+    end
+    local inset = EdgeInsets.all(18.0)
+    local shown = card.padding(insets: inset).background(
+      Palette.launcher,
+      12.0,
+      border: Palette.launcherOutline
+    )
+
+    -- The rest of the screen is dimmed and takes every press, so nothing
+    -- behind is clicked by accident.
+    local nothing = fn()
+    end
+    local held = GestureArea(child: shown.frame(width: 280.0), onTap: nothing)
+    local dim = Color(0.0, 0.0, 0.0, 0.35)
+    return GestureArea(child: held.centered().background(dim), onTap: nothing)
+  end
+
+  static fn button(title: string, fill: Color, pressed: fn() -> nil) -> View
+    local label = Text(title).font(13.0).foregroundStyle(Palette.text)
+    local inset = EdgeInsets.symmetric(horizontal: 14.0, vertical: 5.0)
+    local shown = label.padding(insets: inset).background(fill, 6.0)
+    return GestureArea(child: shown, onTap: pressed)
+  end
+end

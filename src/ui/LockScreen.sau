@@ -1,0 +1,52 @@
+-- The locked screen: the wallpaper, the time large in the middle, and the
+-- date under it, over everything, as a Mac's lock screen. A click or
+-- Enter unlocks it: there are no passwords on Saule Linux yet, so this
+-- keeps a glance or a stray key out, not a person.
+
+from uikit import *
+from wm import Session
+from Palette import Palette
+from Wallpaper import Wallpaper
+from Clock import Clock
+
+export class LockScreen extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  -- It has a tick to run: the time on it moves on.
+  fn ticks() -> boolean
+    return true
+  end
+
+  fn tick(el: Element, dt: float) -> nil
+    local now = Os.date("%H:%M")
+    if now != (el.data.scratch.time as string?) then
+      el.data.scratch.time = now
+      el.markNeedsBuild()
+    end
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local time = Text(Os.date("%H:%M")).font(72.0).foregroundStyle(Palette.text)
+    local date = Text(Clock.today()).font(16.0).foregroundStyle(Palette.dimText)
+    local hint = Text("Click or press Enter to unlock").font(12.0)
+
+    local middle = VStack(alignment: StackAlignment.Center, spacing: 6.0) do
+      Spacer().frame(height: 90.0)
+      show(time)
+      show(date)
+      Spacer()
+      hint.foregroundStyle(Palette.dimText)
+      Spacer().frame(height: 24.0)
+    end
+    local unlock = fn()
+      session.unlock()
+    end
+    return Wallpaper(child: GestureArea(child: middle, onTap: unlock))
+  end
+end

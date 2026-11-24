@@ -1,0 +1,26 @@
+-- The settings service the window manager serves as `saule.wm`, and
+-- Settings calls:
+--
+--   local wm = WmSettings.connect(WmService.name)
+--   local options = wm.options()
+--   options.gap = 8.0
+--   wm.apply(options)
+--
+-- Each call waits for the answer, which the window manager gives on its
+-- next frame. A change applies at once and lasts until the window manager
+-- stops: there is nowhere to keep it across a reboot yet.
+
+from WmOptions import WmOptions
+from SystemInfo import SystemInfo
+
+export extern interface WmSettings
+
+  -- The settings as they are now.
+  fn options() -> WmOptions
+
+  -- Use these settings, all of them, from now on.
+  fn apply(options: WmOptions)
+
+  -- The system, for the About pane.
+  fn about() -> SystemInfo
+end

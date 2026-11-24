@@ -5,12 +5,18 @@ import shine
 from Client import Client
 from Direction import Direction
 from Launcher import Launcher
+from Program import Program
+from SessionEnd import SessionEnd
 from Split import Split
 from Workspace import Workspace
 
 export class Session
   -- How many workspaces there are.
   static count: integer = 4
+
+  -- How much weight one arrow key moves in resize mode: a tenth of a new
+  -- window's (see `Node.unit`).
+  static resizeStep: integer = 10
 
   -- Every window, oldest first, whatever its workspace.
   clients: table<Client>
@@ -27,6 +33,32 @@ export class Session
   -- Which way the next window splits the focused one.
   split: Split
 
+  -- Resize mode (Super+R): the arrow keys resize the focused window
+  -- instead of reaching its app.
+  resizing: boolean
+
+  -- The launcher (Super+Space) is open, and has the keyboard.
+  launching: boolean
+
+  -- The system menu, behind the sun in the status bar, is open.
+  menuOpen: boolean
+
+  -- The screen is locked: the lock screen over everything until it is
+  -- unlocked.
+  locked: boolean
+
+  -- What is waiting for "are you sure?": "restart", "shutDown" or
+  -- "logOut", or "" when nothing is.
+  confirming: string
+
+  -- How the window manager is to end (see `SessionEnd`), or 0 while it
+  -- runs. The desktop ends the app when this is set.
+  exitCode: integer
+
+  -- The apps the window manager was started with, which the launcher
+  -- offers as well as the installed ones.
+  local given: table<string>
+
   local started: boolean
 
   -- Something the screen shows changed, apart from the apps' pixels.
@@ -41,6 +73,13 @@ export class Session
     self.current = 1
     self.focused = nil
     self.split = Split.Horizontal
+    self.resizing = false
+    self.launching = false
+    self.menuOpen = false
+    self.locked = false
+    self.confirming = ""
+    self.exitCode = 0
+    self.given = {}
     self.started = false
     self.changed = false
   end
@@ -88,6 +127,146 @@ export class Session
     self.sync()
   end
 
+  -- Start or end resize mode. It only starts with a window to resize.
+  fn toggleResizing() -> nil
+    self.resizing = not self.resizing and self.focused != nil
+    self.sync()
+  end
+
+  -- Grow or shrink the focused window, in resize mode: see
+  -- `Workspace.resize`.
+  fn resize(direction: Direction) -> nil
+    local client = self.focused
+    if client != nil then
+      self.workspace().resize(client!, direction, Session.resizeStep)
+      self.sync()
+    end
+  end
+
+  -- Open the launcher, or close it when it is open. It takes over from
+  -- resize mode.
+  fn toggleLauncher() -> nil
+    self.launching = not self.launching
+    self.resizing = false
+    self.sync()
+  end
+
+  fn closeLauncher() -> nil
+    self.launching = false
+    self.sync()
+  end
+
+  -- Whether the window manager has the keyboard rather than an app: the
+  -- launcher, the system menu, a question or the lock screen is up.
+  fn ownsKeyboard() -> boolean
+    local asking = self.confirming != ""
+    return self.launching or self.menuOpen or self.locked or asking
+  end
+
+  -- Open the system menu, or close it when it is open.
+  fn toggleMenu() -> nil
+    self.menuOpen = not self.menuOpen
+    self.sync()
+  end
+
+  fn closeMenu() -> nil
+    self.menuOpen = false
+    self.sync()
+  end
+
+  -- Ask "are you sure?" before `action`: "restart", "shutDown" or
+  -- "logOut".
+  fn confirm(action: string) -> nil
+    self.menuOpen = false
+    self.confirming = action
+    self.sync()
+  end
+
+  fn cancelConfirm() -> nil
+    self.confirming = ""
+    self.sync()
+  end
+
+  -- Do what was confirmed.
+  fn confirmed() -> nil
+    match self.confirming
+      case "restart" then self.leave(SessionEnd.reboot)
+      case "shutDown" then self.leave(SessionEnd.powerOff)
+      case "logOut" then self.leave(SessionEnd.logOut)
+      case _ then nil
+    end
+    self.confirming = ""
+    self.sync()
+  end
+
+  fn lock() -> nil
+    self.menuOpen = false
+    self.launching = false
+    self.resizing = false
+    self.locked = true
+    self.sync()
+  end
+
+  fn unlock() -> nil
+    self.locked = false
+    self.sync()
+  end
+
+  -- End the window manager with `code`, asking every app to close first.
+  fn leave(code: integer) -> nil
+    for client in self.clients do
+      Compositor.requestClose(client.id)
+    end
+    self.exitCode = code
+  end
+
+  -- End the focused window's app at once, without asking it. An app not
+  -- started here is asked to close instead: it is not this process's to
+  -- end.
+  fn forceQuit() -> nil
+    self.menuOpen = false
+    local client = self.focused
+    if client != nil then
+      local pid = Compositor.pid(client!.id)
+      if pid == nil or not Launcher.forceQuit(pid!) then
+        Compositor.requestClose(client!.id)
+      end
+    end
+    self.sync()
+  end
+
+  -- Start the app called `name` (as `Program.name` reads, ignoring case),
+  -- if there is one: what the system menu's items open.
+  fn open(name: string) -> nil
+    self.menuOpen = false
+    local wanted = String.lower(name)
+    for program in self.programs() do
+      if String.lower(program.name) == wanted then
+        Launcher.start(program)
+        break
+      end
+    end
+    self.sync()
+  end
+
+  -- Every app the launcher can start.
+  fn programs() -> table<Program>
+    return Launcher.programs(self.given)
+  end
+
+  -- Start `program` from the launcher, and close it. Its window opens next
+  -- to the focused one, as any new window does.
+  fn launch(program: Program) -> nil
+    Launcher.start(program)
+    self.closeLauncher()
+  end
+
+  -- Something the screen shows changed that the session does not hold —
+  -- Settings changed a colour or a gap: redraw.
+  fn refresh() -> nil
+    self.sync()
+  end
+
   -- Put workspace `number` on screen.
   fn show(number: integer) -> nil
     if number >= 1 and number <= Session.count then
@@ -129,6 +308,7 @@ export class Session
     end
 
     self.started = true
+    self.given = apps
     Compositor.start()
     Launcher.startApps(apps)
   end
@@ -200,9 +380,13 @@ export class Session
     return nil
   end
 
-  -- After a change: who has the keyboard now, and redraw.
+  -- After a change: who has the keyboard now, and redraw. Resize mode
+  -- ends with no window left to resize.
   local fn sync() -> nil
     self.focused = self.workspace().focused
+    if self.focused == nil then
+      self.resizing = false
+    end
     self.changed = true
   end
 

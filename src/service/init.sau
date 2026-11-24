@@ -1,0 +1,4 @@
+-- service — what the window manager does for other programs: the settings
+-- Settings shows and changes.
+
+export from SettingsService import *

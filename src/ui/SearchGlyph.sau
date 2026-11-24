@@ -1,0 +1,35 @@
+-- A magnifying glass, drawn rather than taken from an icon font: the
+-- window manager ships no font files, and this is a circle and a line.
+-- It fills the square it is given, in `color`.
+
+import shine
+from uikit import *
+
+export class SearchGlyph extends View
+  color: Color
+
+  fn init(color: Color, key: string? = nil)
+    self.super(key)
+    self.color = color
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  -- The lens takes the top left two thirds; the handle runs from its edge
+  -- to the bottom right corner, at 45 degrees.
+  fn paint(el: Element, x: float, y: float) -> nil
+    local size = Math.min(el.size.width, el.size.height)
+    local stroke = Math.max(size / 10.0, 1.5)
+    local radius = size * 0.32
+    local cx = x + radius + stroke
+    local cy = y + radius + stroke
+    local edge = radius * 0.7071
+
+    self.color.apply()
+    Graphics.setLineWidth(stroke)
+    Graphics.circle("line", cx, cy, radius)
+    Graphics.line(cx + edge, cy + edge, x + size - stroke, y + size - stroke)
+  end
+end

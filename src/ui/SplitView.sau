@@ -1,0 +1,152 @@
+-- One split of the layout on screen: its places side by side or one above
+-- another, each given room by its weight (see `Node`), with a gap between
+-- them. Dragging a gap resizes the two places either side of it.
+--
+-- A layout of its own rather than an `HStack` of `expanded` children
+-- because a drag needs what only layout knows: how many pixels one unit of
+-- weight is. And it reads the weights when it lays out, not when it is
+-- built, so a drag only lays out again; it rebuilds nothing.
+--
+-- Its children are the places, then a `GapHandle` over each gap: after the
+-- places, so in front of them, which is what lets a handle take a press
+-- that lands a little way into a window.
+
+from uikit import *
+from wm import Node, Split
+from Palette import Palette
+from GapDrag import GapDrag
+from GapHandle import GapHandle
+
+export class SplitView extends View
+  node: Node
+  children: table<View>
+
+  fn init(node: Node, places: table<View>, key: string? = nil)
+    self.super(key)
+    self.node = node
+
+    local all: table<View> = {}
+    for place in places do
+      Table.insert(all, place)
+    end
+    for gap = 1, #places - 1 do
+      Table.insert(all, self.handle(gap))
+    end
+    self.children = claimedAll(all)
+  end
+
+  fn childViews() -> table<View>
+    return self.children
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    local size = constraints.biggest()
+    local count = #self.node.children
+    local room = Math.max(self.length(size) - self.gaps(count), 0.0)
+    local total = self.node.totalWeight() as float
+
+    -- Whole pixels, so every window starts on one; the last place takes
+    -- what rounding left over, so the split is filled exactly.
+    local at = 0.0
+    local used = 0.0
+    for i = 1, count do
+      local share = room - used
+      if i < count and total > 0.0 then
+        local weight = self.node.children[i].weight as float
+        share = Math.floor(room * weight / total) as float
+      end
+      used += share
+      self.place(el.childAt(i), size, at, share)
+      at += share + Palette.gap
+
+      -- The handle over the gap after this place, reaching `Palette.grab`
+      -- into the places either side.
+      if i < count then
+        local edge = at - Palette.gap - Palette.grab
+        local reach = Palette.gap + 2.0 * Palette.grab
+        self.place(el.childAt(count + i), size, edge, reach)
+      end
+    end
+
+    el.data.scratch.room = room
+    return size
+  end
+
+  -- Lay `child` out `span` long, `start` along the split, across all of it.
+  local fn place(child: Element?, size: Size, start: float, span: float) -> nil
+    if child == nil then
+      return
+    end
+    if self.horizontal() then
+      child!.layout(Constraints.tight(Size(span, size.height)))
+      child!.offset = Offset(start, 0.0)
+    else
+      child!.layout(Constraints.tight(Size(size.width, span)))
+      child!.offset = Offset(0.0, start)
+    end
+  end
+
+  -- The handle for the gap after place `gap`. Its element's parent is this
+  -- split's element, which holds the drag.
+  local fn handle(gap: integer) -> View
+    local start = fn(handle: Element, position: float)
+      local before = self.node.children[gap].weight
+      local after = self.node.children[gap + 1].weight
+      local split = handle.parent!
+      split.data.scratch.drag = GapDrag(gap, position, before, after)
+    end
+    local move = fn(handle: Element, position: float)
+      local split = handle.parent!
+      local drag = split.data.scratch.drag as GapDrag?
+      if drag != nil then
+        self.drag(split, drag!, position)
+      end
+    end
+    local finish = fn(handle: Element)
+      handle.parent!.data.scratch.drag = nil
+    end
+    return GapHandle(self.horizontal(), start, move, finish)
+  end
+
+  -- Move the gap being dragged to `position`. The two places either side
+  -- of it are worked out again from their weights at the press, not
+  -- nudged a little each move, so rounding never adds up.
+  local fn drag(el: Element, drag: GapDrag, position: float) -> nil
+    -- The room the places had at the last layout: what turns pixels into
+    -- weight.
+    local room = (el.data.scratch.room as float?) ?? 0.0
+    local total = self.node.totalWeight() as float
+    if room <= 0.0 then
+      return
+    end
+
+    local before = self.node.children[drag.gap]
+    local after = self.node.children[drag.gap + 1]
+    local moved = position - drag.start
+    local amount = Math.floor(moved * total / room + 0.5)
+
+    before.weight = drag.before
+    after.weight = drag.after
+    before.takeWeight(after, amount)
+
+    el.markNeedsLayout()
+    Repaint.request()
+  end
+
+  local fn horizontal() -> boolean
+    return self.node.split == Split.Horizontal
+  end
+
+  -- How long `size` is along the split.
+  local fn length(size: Size) -> float
+    if self.horizontal() then
+      return size.width
+    end
+    return size.height
+  end
+
+  -- The room the gaps between `count` places take.
+  local fn gaps(count: integer) -> float
+    return Palette.gap * (Math.max(count - 1, 0) as float)
+  end
+end

@@ -6,5 +6,7 @@ export from Direction import *
 export from Client import *
 export from Node import *
 export from Workspace import *
+export from Program import *
 export from Launcher import *
+export from SessionEnd import *
 export from Session import *

@@ -1,0 +1,62 @@
+-- One line of the system menu: what it does, and its shortcut on the
+-- right as a Mac writes them. Lit in the accent under the pointer, as on
+-- a Mac; greyed out, and doing nothing, when it can't be used now.
+
+from uikit import *
+from Palette import Palette
+
+export class SystemMenuItem extends View
+  title: string
+  shortcut: string
+  enabled: boolean
+  onPick: fn() -> nil
+
+  fn init(
+    title: string,
+    shortcut: string,
+    enabled: boolean,
+    onPick: fn() -> nil,
+    key: string? = nil
+  )
+    self.super(key)
+    self.title = title
+    self.shortcut = shortcut
+    self.enabled = enabled
+    self.onPick = onPick
+  end
+
+  fn body(context: BuildContext) -> View
+    local hovered = context.state("hovered", false)
+    local lit = self.enabled and hovered.flag()
+
+    local text = Palette.text
+    local hint = Palette.dimText
+    if not self.enabled then
+      text = Palette.dimText.withAlpha(0.35)
+      hint = text
+    end
+    local fill: Color? = nil
+    if lit then
+      fill = Palette.accent
+      hint = Palette.text
+    end
+
+    local row = HStack(alignment: StackAlignment.Center) do
+      Text(self.title).font(13.0).foregroundStyle(text)
+      Spacer()
+      Text(self.shortcut).font(12.0).foregroundStyle(hint)
+    end
+    local inset = EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0)
+    local shown = row.padding(insets: inset).background(fill, 5.0)
+
+    local hover = fn(on: boolean)
+      hovered.set(on)
+    end
+    local pick = fn()
+      if self.enabled then
+        self.onPick()
+      end
+    end
+    return GestureArea(child: shown, onTap: pick, onHover: hover)
+  end
+end

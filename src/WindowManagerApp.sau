@@ -3,13 +3,17 @@
 from uikit import *
 from wm import Session
 from ui import Desktop
+from service import SettingsService
 
 export class WindowManagerApp extends App
   apps: table<string>
+  session: Session
 
   fn init(apps: table<string>)
     self.super()
     self.apps = apps
+    self.session = Session()
+    SettingsService.publish(self.session)
   end
 
   fn body() -> Scene
@@ -21,7 +25,7 @@ export class WindowManagerApp extends App
       height: 600,
       keyRepeat: false
     ) do
-      Desktop(Session(), self.apps)
+      Desktop(self.session, self.apps)
     end
   end
 end
