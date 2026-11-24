@@ -1,0 +1,232 @@
+-- The graphics hardware's name, for About This System: "Intel GMA 3150",
+-- "AMD Radeon RX 6700 XT". Found the way each system tells it:
+--
+--   Linux, Saule Linux   the kernel's graphics devices in /sys/class/drm,
+--                        named from the PCI ids: a few known here, the
+--                        rest from the pci.ids list where the system has
+--                        one, else by maker and driver ("Intel (i915)")
+--   Windows, and WSL     Windows' own list of video controllers, asked
+--                        through PowerShell (WSL's Linux sees no card,
+--                        only a virtual one)
+--   macOS                system_profiler's "Chipset Model"
+--
+-- Asking Windows or macOS takes a moment, so it's asked once, as the
+-- window manager starts (`start`), and the answer read when About wants
+-- it: empty until it has come.
+
+from log import Logger
+
+export class GraphicsCard
+  static local log: Logger = Logger("wm.settings")
+
+  -- PCI ids ("vendor:device") the pci.ids list names at length, or not at
+  -- all on Saule Linux, which has no list: the netbook's, and QEMU's.
+  static local known: table<string, string> = {
+    ["8086:a001"]: "Intel GMA 3150",
+    ["8086:a011"]: "Intel GMA 3150",
+    ["1af4:1050"]: "Virtio GPU",
+    ["1234:1111"]: "QEMU Standard VGA",
+    ["1b36:0100"]: "QXL",
+    ["15ad:0405"]: "VMware SVGA II",
+    ["80ee:beef"]: "VirtualBox Graphics",
+  }
+
+  -- Makers, for a card neither the list above nor pci.ids names.
+  static local makers: table<string, string> = {
+    ["8086"]: "Intel",
+    ["1002"]: "AMD",
+    ["10de"]: "NVIDIA",
+    ["1af4"]: "Virtio",
+    ["1234"]: "QEMU",
+    ["15ad"]: "VMware",
+    ["80ee"]: "VirtualBox",
+    ["106b"]: "Apple",
+  }
+
+  -- Windows' or macOS's answer: the query while it runs, what it has
+  -- printed so far, and the names once it has finished.
+  static local query: Process? = nil
+  static local output: string = ""
+  static local answer: string = ""
+
+  -- Ask the system that is slow to answer, if it is one of those.
+  static fn start() -> nil
+    if GraphicsCard.query != nil then
+      return
+    end
+    local windows = Os.platform() == OsPlatform.Windows or Os.exists("/dev/dxg")
+    if windows then
+      local ask = "(Get-CimInstance Win32_VideoController).Name"
+      local args = {"-NoProfile", "-NonInteractive", "-Command", ask}
+      GraphicsCard.query = Os.spawn("powershell.exe", args)
+    elseif Os.platform() == OsPlatform.Macos then
+      GraphicsCard.query = Os.spawn("system_profiler", {"SPDisplaysDataType"})
+    end
+  end
+
+  -- The cards' names, joined: "" when none could be found (yet).
+  static fn name() -> string
+    local names = GraphicsCard.fromQuery()
+    if names == "" then
+      names = GraphicsCard.fromKernel()
+    end
+    GraphicsCard.log.debug("graphics", {name: names})
+    return names
+  end
+
+  -- Windows' or macOS's answer, once the query has finished.
+  static fn fromQuery() -> string
+    local query = GraphicsCard.query
+    if query == nil then
+      return GraphicsCard.answer
+    end
+    GraphicsCard.output ..= Bytes.toString(query!.read()) ?? ""
+    if query!.running() then
+      return ""
+    end
+    GraphicsCard.output ..= Bytes.toString(query!.read()) ?? ""
+    GraphicsCard.query = nil
+    GraphicsCard.answer = GraphicsCard.parse(GraphicsCard.output)
+    return GraphicsCard.answer
+  end
+
+  -- PowerShell prints one name a line; system_profiler a "Chipset Model:"
+  -- line a card. Windows' virtual screens (Remote Desktop's, a virtual
+  -- monitor's) aren't cards.
+  static fn parse(text: string) -> string
+    local names: table<string> = {}
+    for raw in String.split(text, "\n") do
+      local line = String.trim(raw)
+      if String.contains(line, "Chipset Model:") then
+        line = String.trim(String.split(line, ":")[2] ?? "")
+      elseif String.contains(line, ":") then
+        line = ""
+      end
+      local virtual = false
+      for word in {"Virtual", "Remote", "Basic Display"} do
+        if String.contains(line, word) then
+          virtual = true
+        end
+      end
+      if line != "" and not virtual then
+        Table.insert(names, GraphicsCard.tidy(line))
+      end
+    end
+    return Table.concat(names, ", ")
+  end
+
+  -- The PCI graphics devices the kernel drives, each named. With none, a
+  -- screen the firmware set up and no driver took over (simpledrm) says
+  -- so, rather than nothing.
+  static fn fromKernel() -> string
+    local root = "/sys/class/drm"
+    if not Os.exists(root) then
+      return ""
+    end
+    local names: table<string> = {}
+    local firmware = false
+    for entry in Os.list(root) do
+      -- "card0", not its outputs ("card0-HDMI-A-1") or "renderD128".
+      local output = String.contains(entry, "-")
+      local card = String.starts(entry, "card") and not output
+      local device = root .. "/" .. entry .. "/device/"
+      if card and Os.exists(device .. "vendor") then
+        Table.insert(names, GraphicsCard.describe(device))
+      elseif card then
+        local uevent = GraphicsCard.read(device .. "uevent")
+        firmware = firmware or String.contains(uevent, "simple-framebuffer")
+      end
+    end
+    if #names == 0 and firmware then
+      return "Firmware framebuffer (no driver)"
+    end
+    return Table.concat(names, ", ")
+  end
+
+  -- One PCI device, from its folder in /sys: its ids and its driver.
+  static fn describe(device: string) -> string
+    local vendor = GraphicsCard.hex(GraphicsCard.firstLine(device .. "vendor"))
+    local model = GraphicsCard.hex(GraphicsCard.firstLine(device .. "device"))
+    local id = vendor .. ":" .. model
+    local named = GraphicsCard.known[id] ?? GraphicsCard.fromList(vendor, model)
+    if named != "" then
+      return GraphicsCard.tidy(named)
+    end
+
+    local maker = GraphicsCard.makers[vendor] ?? id
+    local driver = ""
+    for line in String.split(GraphicsCard.read(device .. "uevent"), "\n") do
+      if String.starts(line, "DRIVER=") then
+        driver = String.sub(line, 8)
+      end
+    end
+    if driver == "" then
+      return maker .. " graphics"
+    end
+    return maker .. " graphics (" .. driver .. ")"
+  end
+
+  -- The device's name in the pci.ids list, or "" without one.
+  static fn fromList(vendor: string, model: string) -> string
+    for path in {"/usr/share/misc/pci.ids", "/usr/share/hwdata/pci.ids"} do
+      if Os.exists(path) then
+        return GraphicsCard.lookUp(GraphicsCard.read(path), vendor, model)
+      end
+    end
+    return ""
+  end
+
+  -- pci.ids is a vendor at the start of a line ("8086  Intel
+  -- Corporation"), then its devices a tab in ("\ta011  Atom …").
+  static fn lookUp(list: string, vendor: string, model: string) -> string
+    local inVendor = false
+    for line in String.split(list, "\n") do
+      if String.starts(line, "\t") then
+        if inVendor and String.starts(line, "\t" .. model .. " ") then
+          return String.trim(String.sub(line, String.len(model) + 2))
+        end
+      elseif not String.starts(line, "#") and line != "" then
+        if inVendor then
+          return ""
+        end
+        inVendor = String.starts(line, vendor .. " ")
+      end
+    end
+    return ""
+  end
+
+  -- "0x8086" as pci.ids writes it: "8086".
+  static fn hex(value: string) -> string
+    local text = String.lower(String.trim(value))
+    if String.starts(text, "0x") then
+      return String.sub(text, 3)
+    end
+    return text
+  end
+
+  -- Without the "(R)" and "(TM)" makers put in their names.
+  static fn tidy(name: string) -> string
+    local out = name
+    for mark in {"(R)", "(TM)", "(tm)"} do
+      out = String.replace(out, mark, "")
+    end
+    while String.contains(out, "  ") do
+      out = String.replace(out, "  ", " ")
+    end
+    return String.trim(out)
+  end
+
+  static fn firstLine(path: string) -> string
+    return String.split(GraphicsCard.read(path), "\n")[1] ?? ""
+  end
+
+  static fn read(path: string) -> string
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    return text
+  end
+end

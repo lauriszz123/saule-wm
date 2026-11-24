@@ -7,10 +7,18 @@ export class SystemInfo
   saule: string = ""
   wm: string = ""
 
+  -- What the computer is, as its firmware names it, e.g. "HP Mini
+  -- 210-1001SA".
+  machine: string = ""
+
   -- The processor's name, e.g. "Intel(R) Atom(TM) CPU N450 @ 1.66GHz",
   -- and how many threads it runs at once.
   processor: string = ""
   cores: integer = 0
+
+  -- The graphics hardware, e.g. "Intel GMA 3150"; several are joined with
+  -- commas.
+  graphics: string = ""
 
   -- The kernel's release, e.g. "6.18.64-saule".
   kernel: string = ""
@@ -25,4 +33,9 @@ export class SystemInfo
 
   -- How many windows are open, on every workspace.
   windows: integer = 0
+
+  -- Where the window manager runs: "saule" on the screen of Saule Linux,
+  -- or nested in a window on "windows", "macos" or "linux". Nested, the
+  -- desktop around moves the pointer.
+  host: string = ""
 end
