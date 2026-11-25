@@ -43,10 +43,16 @@ export class ClientView extends View
 
   -- Take all the room there is, and tell the app when that changes: the
   -- window manager decides a window's size, the app redraws at it.
+  --
+  -- The app is told its size in the screen's own pixels, and draws at
+  -- the scale everything here is drawn at (`Compositor.sendScale`): its
+  -- pixels then go on the screen one for one, and its text is as sharp
+  -- as the bar's.
   fn layout(el: Element, constraints: Constraints) -> Size
     local size = constraints.biggest()
-    local w = size.width as integer
-    local h = size.height as integer
+    local scale = Display.scale()
+    local w = Math.floor(size.width * scale + 0.5)
+    local h = Math.floor(size.height * scale + 0.5)
 
     local scratch = el.data.scratch
     local resized = w != (scratch.w as integer?) or h != (scratch.h as integer?)
@@ -79,11 +85,17 @@ export class ClientView extends View
       Graphics.intersectScissor(x, y, w, h)
       -- Shine tints an image with the current colour: white leaves it be.
       Graphics.setColor(1.0, 1.0, 1.0)
+      -- The app's pixels are the screen's own: drawn with the scaling
+      -- of everything else here undone, a pixel to a pixel.
+      local s = Display.scale()
+      Graphics.push()
+      Graphics.scale(1.0 / s, 1.0 / s)
       if self.decorated then
-        ClientView.squareTop(image!, x, y, w, h, r)
+        ClientView.squareTop(image!, x * s, y * s, w * s, h * s, r * s)
       else
-        Graphics.drawRounded(image!, x, y, r)
+        Graphics.drawRounded(image!, x * s, y * s, r * s)
       end
+      Graphics.pop()
       Graphics.pop()
     end
 
@@ -156,8 +168,10 @@ export class ClientView extends View
 
     match event.kind
       case PointerKind.Move then
+        -- In the app's pixels, which are the screen's.
         if inside or data.pressed then
-          Compositor.sendPointer(id, x, y)
+          local s = Display.scale()
+          Compositor.sendPointer(id, x * s, y * s)
         end
         if inside then
           Cursors.request(self.client.cursor)

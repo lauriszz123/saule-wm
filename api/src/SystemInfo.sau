@@ -34,7 +34,7 @@ export class SystemInfo
   -- "" when there is none.
   storage: string = ""
 
-  -- The screen, in the window manager's own pixels.
+  -- The screen's resolution, in its own pixels.
   screenWidth: integer = 0
   screenHeight: integer = 0
 

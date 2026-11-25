@@ -144,6 +144,12 @@ export class System
   static passkeyFor: string = ""
   static passkey: string = ""
 
+  -- The system's version, and an update being installed: "idle",
+  -- "installing", "done" or "failed", and the new version or why.
+  static version: string = ""
+  static updateState: string = "idle"
+  static updateDetail: string = ""
+
   -- When the clock was last set from a time server (Unix seconds, 0 for
   -- never), and the drives plugged in.
   static clockSynced: integer = 0
@@ -186,6 +192,7 @@ export class System
     local bluetooth = System.read(folder .. "/bluetooth")
     local clockFile = System.read(folder .. "/clock")
     local disks = System.read(folder .. "/disks")
+    local update = System.read(folder .. "/update")
     System.there = power != "" or sound != "" or network != ""
 
     System.takePower(power)
@@ -195,6 +202,18 @@ export class System
     System.takeLogin(login)
     System.takeBluetooth(bluetooth)
     System.takeDisks(disks)
+    System.version = System.value(update, "version")
+    local state = System.value(update, "state")
+    local space = String.indexOf(state, " ")
+    System.updateState = state
+    System.updateDetail = ""
+    if space != nil then
+      System.updateState = String.sub(state, 1, space! - 1)
+      System.updateDetail = String.sub(state, space! + 1)
+    end
+    if System.updateState == "" then
+      System.updateState = "idle"
+    end
     local synced = String.split(System.value(clockFile, "synced"), " ")[1] ?? ""
     System.clockSynced = Machine.whole(synced)
     if clock - System.batteryAt >= System.batteryEvery then
@@ -202,7 +221,7 @@ export class System
       System.takeBattery()
     end
 
-    local now = power .. sound .. network .. display .. login .. bluetooth .. clockFile .. disks .. tostring(
+    local now = power .. sound .. network .. display .. login .. bluetooth .. clockFile .. disks .. update .. tostring(
       System.charge
     ) .. tostring(System.charging) .. tostring(System.battery)
     if now == System.shown then
@@ -484,6 +503,14 @@ export class System
       System.ask("bluetooth " .. action)
     elseif withDevice and String.len(address) == 17 and not String.contains(address, " ") then
       System.ask("bluetooth " .. action .. " " .. address)
+    end
+  end
+
+  -- Install the update in the file at `path`.
+  static fn installUpdate(path: string) -> nil
+    if not String.contains(path, "\n") then
+      System.updateState = "installing"
+      System.ask("update " .. path)
     end
   end
 

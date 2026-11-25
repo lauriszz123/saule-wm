@@ -95,6 +95,7 @@ export class Preferences
       "newWindows = " .. options.newWindows,
       "windowed = " .. tostring(options.windowed),
       "dock = " .. tostring(options.dock),
+      "scale = " .. tostring(options.scale),
       "accent = " .. options.accent,
       "corners = " .. tostring(options.corners),
       "wallpaper = " .. options.wallpaper,
@@ -150,6 +151,8 @@ export class Preferences
         options.windowed = value == "true"
       case "dock" then
         options.dock = value == "true"
+      case "scale" then
+        options.scale = (value as float?) ?? options.scale
       case "accent" then
         options.accent = value
       case "corners" then

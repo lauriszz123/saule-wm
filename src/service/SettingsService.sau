@@ -75,6 +75,7 @@ export class SettingsService implements WmSettings
     end
     options.windowed = self.session.windowed
     options.dock = self.session.dock
+    options.scale = self.session.scale
     options.accent = Palette.accentName
     options.corners = Palette.radius
     options.wallpaper = Palette.wallpaperName
@@ -153,6 +154,7 @@ export class SettingsService implements WmSettings
     self.session.splitNext(split)
     self.session.setWindowed(options.windowed)
     self.session.dock = options.dock
+    self.session.setScale(options.scale)
     self.session.refresh()
   end
 
@@ -175,11 +177,11 @@ export class SettingsService implements WmSettings
     info.graphics = GraphicsCard.name()
     SettingsService.memory(info)
     info.uptime = SettingsService.uptime()
-    -- In the window manager's own pixels, which its layout uses: on a
-    -- high-density screen there are more of the screen's own.
+    -- The screen's own pixels: its resolution, whatever size things are
+    -- drawn at on it.
     local w, h = Window.getSize()
-    info.screenWidth = Display.toLogical(w as float) as integer
-    info.screenHeight = Display.toLogical(h as float) as integer
+    info.screenWidth = w
+    info.screenHeight = h
     info.windows = #self.session.clients
     info.host = Keymap.host
     info.storage = Storage.summary()
@@ -264,6 +266,9 @@ export class SettingsService implements WmSettings
     info.passkeyFor = System.passkeyFor
     info.passkey = System.passkey
     info.clockSynced = System.clockSynced
+    info.version = System.version
+    info.updateState = System.updateState
+    info.updateDetail = System.updateDetail
 
     info.layoutsOffered = Layouts.offered()
     info.layout = Layouts.code()
@@ -363,6 +368,15 @@ export class SettingsService implements WmSettings
 
   fn syncClock()
     System.syncClock()
+  end
+
+  fn installUpdate(path: string)
+    System.installUpdate(path)
+    SettingsService.log.info("update asked for", {file: path})
+  end
+
+  fn askRestart()
+    self.session.confirm("restart")
   end
 
   -- An app saying what it is: known from then on by the process that

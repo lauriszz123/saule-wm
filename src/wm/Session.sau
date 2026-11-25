@@ -79,6 +79,11 @@ export class Session
   -- The Dock is shown along the foot of the screen.
   dock: boolean
 
+  -- How large everything is drawn, as chosen: 0 for what suits the
+  -- screen. And the scale in force when the apps were last told it.
+  scale: float
+  local scaleTold: float
+
   -- What apps have said of themselves, by process number.
   apps: table<integer, AppInfo>
 
@@ -184,6 +189,8 @@ export class Session
     self.hudAt = 0.0
     self.windowed = false
     self.dock = true
+    self.scale = 0.0
+    self.scaleTold = 0.0
     self.apps = {}
     self.appMenuOpen = false
     self.appMenuLeft = 60.0
@@ -260,6 +267,37 @@ export class Session
       client!.nudgeToward(direction)
     else
       self.workspace().move(client!, direction)
+    end
+    self.sync()
+  end
+
+  -- Draw everything `scale` times its size; 0 is what suits the screen.
+  -- Kept to the steps Settings offers. Shine applies it on the bare
+  -- screen from its next frame, and `tellScale` passes it on.
+  fn setScale(scale: float) -> nil
+    local wanted = 0.0
+    if scale > 0.0 then
+      wanted = Math.clamp(scale, 1.0, 2.5)
+    end
+    if wanted != self.scale then
+      self.scale = wanted
+      Window.setScale(wanted)
+      Session.log.info("scale chosen", {scale: wanted})
+    end
+  end
+
+  -- Each frame: when the scale in force has changed, every app is told,
+  -- so its window is drawn as large and as sharp as what is around it;
+  -- and apps started from now on begin at it (`SHINE_SCALE`).
+  fn tellScale() -> nil
+    local now = Window.getScale()
+    if now == self.scaleTold then
+      return
+    end
+    self.scaleTold = now
+    Os.setenv("SHINE_SCALE", tostring(now))
+    for client in self.clients do
+      Compositor.sendScale(client.id, now)
     end
     self.sync()
   end
@@ -939,6 +977,7 @@ export class Session
     end
 
     Launcher.pump()
+    self.tellScale()
     for chore in self.chores do
       chore()
     end
@@ -970,6 +1009,7 @@ export class Session
             client.floating = true
             client.byMode = true
           end
+          Compositor.sendScale(ev.id, Window.getScale())
           Table.insert(self.clients, client)
           self.workspace().add(client, self.split)
           self.sync()

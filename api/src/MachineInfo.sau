@@ -50,6 +50,14 @@ export class MachineInfo
   -- when it never was.
   clockSynced: integer = 0
 
+  -- The version of the system running, "" where there is none to say
+  -- (not Saule Linux). And an update being installed from a file:
+  -- "idle", "installing", "done" (it is what the computer starts next)
+  -- or "failed", with the new version or what went wrong.
+  version: string = ""
+  updateState: string = "idle"
+  updateDetail: string = ""
+
   -- The screen's backlight: whether there is one to set, and how bright
   -- from 0 to 100.
   backlight: boolean = false

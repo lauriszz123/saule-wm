@@ -112,6 +112,17 @@ A window that loses the keyboard is always told (`Compositor.sendFocus`),
 and Shine then lets go of every key it held: a shortcut that takes the
 keyboard away would otherwise leave its Ctrl held in the app for good.
 
+## The size of everything
+
+On Saule Linux's own screen everything is drawn at a scale: 1 a pixel to
+a point, 1.5 half as large again. Settings offers the steps from 100% to
+200%, and "Automatic", which is how it starts and goes by how many pixels
+the screen has (Shine's `Window.setScale`). The window manager lays
+itself out in points, so all of it follows; each app is told the scale
+(`Compositor.sendScale`, and `SHINE_SCALE` for one just starting) and its
+size in the screen's own pixels, and its window is drawn a pixel to a
+pixel, so an app's text is as sharp as the bar's at any scale.
+
 ## The computer's own keys
 
 The keys with pictures on them act whatever is on the screen, the lock

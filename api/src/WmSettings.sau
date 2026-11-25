@@ -85,6 +85,14 @@ export extern interface WmSettings
   -- address "pair", "connect", "disconnect" or "forget".
   fn bluetooth(action: string, address: string)
 
+  -- Install the update in the file at `path`: one found on a drive or
+  -- in Downloads. It is checked to be the system maker's before
+  -- anything is written; how it goes is `MachineInfo.updateState`.
+  fn installUpdate(path: string)
+
+  -- Restart the computer, asking first as the sun's menu does.
+  fn askRestart()
+
   -- Ask a time server the time now.
   fn syncClock()
 

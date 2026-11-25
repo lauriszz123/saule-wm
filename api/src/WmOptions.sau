@@ -21,6 +21,12 @@ export class WmOptions
   -- overlapping, as on a Mac. Switching moves the windows there are.
   windowed: boolean = false
 
+  -- How large everything is drawn, on Saule Linux's own screen: 1 a
+  -- pixel to a point, 1.5 half as large again; 0 is what suits the
+  -- screen (larger on a screen of more pixels). Nested in another
+  -- desktop, that desktop's own scale stands.
+  scale: float = 0.0
+
   -- The Dock along the foot of the screen: the apps, and the windows
   -- that were minimised.
   dock: boolean = true
