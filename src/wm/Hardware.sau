@@ -1,0 +1,40 @@
+-- What the computer is typed on and pointed at with, as Shine found it
+-- (`Devices.list`): Settings shows a pane for each kind there is. On
+-- Saule Linux only; nested in another desktop the list is empty, and
+-- Settings shows the panes it always has.
+
+import shine
+from "wmapi" import InputDevice
+
+export class Hardware
+  -- How often Shine is asked again, in seconds: it looks for new devices
+  -- every couple itself.
+  static readEvery: float = 1.0
+  static local readAt: float = -10.0
+  static local found: table<InputDevice> = {}
+
+  static fn devices() -> table<InputDevice>
+    local clock = Os.clock()
+    if clock - Hardware.readAt >= Hardware.readEvery then
+      Hardware.readAt = clock
+      Hardware.found = Hardware.read()
+    end
+    return Hardware.found
+  end
+
+  -- Each line is "kind<TAB>built-in|connected<TAB>name".
+  static local fn read() -> table<InputDevice>
+    local found: table<InputDevice> = {}
+    for line in Devices.list() do
+      local fields = String.split(line, "\t")
+      if #fields >= 3 then
+        local device = InputDevice()
+        device.kind = fields[1]
+        device.builtIn = fields[2] == "built-in"
+        device.name = fields[3]
+        Table.insert(found, device)
+      end
+    end
+    return found
+  end
+end

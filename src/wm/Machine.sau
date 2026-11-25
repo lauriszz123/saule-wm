@@ -9,7 +9,12 @@
 --
 --   hostname   the computer's name
 --   timezone   the zone it is in: `Europe/Vilnius`
+--   keyboard   the keyboard's layout as the installer was told it: `lt`
 --   setup      `done` once the first-start setup has been through
+--
+-- Beside that folder is `account`, which is root's: who the computer is
+-- for, and what is kept of their password. Whether there is a password
+-- can be seen from here (the file is there); what it is cannot.
 --
 -- The time: Saule's `Os.date` is UTC. Init writes what the chosen zone
 -- means right now to `/run/saule/time` — the zone, how many seconds ahead
@@ -70,6 +75,27 @@ export class Machine
     Os.rename(path .. ".part", path)
   end
 
+  -- Whether a password is asked for when the computer starts: told from
+  -- the file being there, at once, before anything else has answered, so
+  -- that the desktop is never shown first.
+  static fn hasPassword() -> boolean
+    -- `SAULE_WM_PASSWORD=word` stands in for one anywhere, for working
+    -- on the lock screen (see `System.unlock`).
+    if Os.getenv("SAULE_WM_PASSWORD") != nil then
+      return true
+    end
+    local data = Os.getenv("SAULE_DATA")
+    if data == nil then
+      return false
+    end
+    return Os.exists(data! .. "/account/password")
+  end
+
+  -- The keyboard layout chosen when the system was installed, or "".
+  static fn keyboard() -> string
+    return Machine.read("keyboard")
+  end
+
   -- Whether the first-start setup should be shown: on a Saule Linux that
   -- keeps things and hasn't been through it. `SAULE_WM_SETUP=1` shows it
   -- anywhere, for working on it.
@@ -97,6 +123,50 @@ export class Machine
     local line = file!.read("l") ?? ""
     file!.close()
     return String.trim(line)
+  end
+
+  -- What the computer is, as its maker's firmware names it ("Inspiron
+  -- 7559"), or "" where it says nothing of use: a board whose maker
+  -- never filled the name in says so in one of a few stock phrases.
+  static fn model() -> string
+    local file = Io.open("/sys/class/dmi/id/product_name", IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local product = String.trim(file!.read("l") ?? "")
+    file!.close()
+    local said = String.lower(product)
+    local nothing: table<string> = {
+      "o.e.m",
+      "system product name",
+      "system name",
+      "default string",
+      "not specified",
+      "not applicable",
+      "unknown",
+      "none",
+    }
+    for phrase in nothing do
+      if String.contains(said, phrase) then
+        return ""
+      end
+    end
+    return product
+  end
+
+  -- The name the first-start setup offers: the one chosen before, if
+  -- any; else the computer's own, as its maker writes it; else what the
+  -- system calls itself. It is there to be kept or typed over.
+  static fn offeredName() -> string
+    local chosen = Machine.read("hostname")
+    if chosen != "" then
+      return chosen
+    end
+    local model = Machine.model()
+    if Machine.nameFrom(model) != "" then
+      return model
+    end
+    return Machine.name()
   end
 
   -- `typed` as a computer's name: letters, digits and hyphens, with

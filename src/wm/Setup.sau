@@ -34,7 +34,7 @@ export class Setup
 
   fn init()
     self.page = Setup.welcome
-    self.name = Machine.name()
+    self.name = Machine.offeredName()
     self.query = ""
     self.zone = Machine.zone()
   end

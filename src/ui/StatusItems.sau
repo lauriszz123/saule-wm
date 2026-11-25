@@ -10,7 +10,7 @@
 -- computer (the window manager nested in another desktop).
 
 from uikit import *
-from wm import Session, System
+from wm import Layouts, Session, System
 from Palette import Palette
 from StatusGlyph import StatusGlyph
 
@@ -25,6 +25,12 @@ export class StatusItems extends View
   fn body(context: BuildContext) -> View
     local session = self.session
     local items: table<View> = {}
+
+    -- The keyboard layout, where there is more than one to be in: its
+    -- two letters, and a click goes on to the next.
+    if #Layouts.chosen > 1 and Layouts.offered() then
+      Table.insert(items, StatusItems.keyboard(session))
+    end
 
     if System.there and (System.wired or System.radio != "none") then
       local kind, level = StatusItems.network()
@@ -51,6 +57,19 @@ export class StatusItems extends View
       sizing: StackSize.Fit,
       spacing: 2.0,
       children: items
+    )
+  end
+
+  static fn keyboard(session: Session) -> View
+    local letters = Text(Layouts.short(Layouts.code())).font(11.0)
+    local inset = EdgeInsets.symmetric(horizontal: 5.0, vertical: 1.0)
+    local badge = letters.foregroundStyle(Palette.text).padding(insets: inset)
+    local next = fn()
+      session.nextLayout()
+    end
+    return GestureArea(
+      child: badge.background(nil, 4.0, border: Palette.outline),
+      onTap: next
     )
   end
 

@@ -1,11 +1,30 @@
--- The locked screen: the wallpaper, darkened toward the edges, the time
--- large in the middle, and the date under it, over everything, as a Mac's
--- lock screen. A click or
--- Enter unlocks it: there are no passwords on Saule Linux yet, so this
--- keeps a glance or a stray key out, not a person.
+-- The locked screen, and the screen the computer starts at when it has a
+-- password: the wallpaper, darkened toward the edges, the time large and
+-- the date under it, over everything, as a Mac's.
+--
+--                        14:05
+--                   Tuesday 24 November
+--
+--                         ( A )
+--                      Ada Lovelace
+--                  ┌──────────────────┐
+--                  │ Enter Password   │
+--                  └──────────────────┘
+--
+--                  Restart      Shut Down
+--
+-- With a password, it is typed and Enter asks the system whether it is
+-- right (`Session.submit`): the session can't read what is kept of it.
+-- A wrong one says so and is cleared; the system makes each wrong one in
+-- a row wait longer for its answer. Without a password a click or Enter
+-- unlocks, which keeps a glance or a stray key out, not a person.
+--
+-- Until somebody has been let in, it is where the computer starts, and
+-- offers what a computer nobody is using yet can do: restart, or turn
+-- off.
 
 from uikit import *
-from wm import Session
+from wm import Layouts, Session, SessionEnd, System
 from Palette import Palette
 from Wallpaper import Wallpaper
 from Clock import Clock
@@ -13,12 +32,21 @@ from Clock import Clock
 export class LockScreen extends View
   session: Session
 
+  -- What gives the password's field the keyboard: it has it for as long
+  -- as the screen is locked, whatever was clicked.
+  static node: FocusNode = FocusNode()
+
+  static fieldWidth: float = 220.0
+  static field: Color = Color(1.0, 1.0, 1.0, 0.16)
+  static avatar: float = 64.0
+
   fn init(session: Session, key: string? = nil)
     self.super(key)
     self.session = session
   end
 
-  -- It has a tick to run: the time on it moves on.
+  -- It has a tick to run: the time on it moves on, and the field keeps
+  -- the keyboard.
   fn ticks() -> boolean
     return true
   end
@@ -29,26 +57,142 @@ export class LockScreen extends View
       el.data.scratch.time = now
       el.markNeedsBuild()
     end
+    local session = self.session
+    if session.locked and session.needsPassword() and not LockScreen.node.hasFocus() then
+      LockScreen.node.requestFocus()
+    end
   end
 
   fn body(context: BuildContext) -> View
     local session = self.session
     local time = Text(Clock.time()).font(72.0).foregroundStyle(Palette.text)
     local date = Text(Clock.today()).font(16.0).foregroundStyle(Palette.dimText)
-    local hint = Text("Click or press Enter to unlock").font(12.0)
 
-    local middle = VStack(alignment: StackAlignment.Center, spacing: 6.0) do
-      Spacer().frame(height: 90.0)
-      show(time)
-      show(date)
-      Spacer()
-      hint.foregroundStyle(Palette.dimText)
-      Spacer().frame(height: 24.0)
+    local items: table<View> = {
+      Spacer().frame(height: 90.0),
+      time,
+      date,
+      Spacer(),
+    }
+    if session.needsPassword() then
+      for view in LockScreen.asking(session) do
+        Table.insert(items, view)
+      end
+    else
+      local hint = Text("Click or press Enter to unlock").font(12.0)
+      Table.insert(items, hint.foregroundStyle(Palette.dimText))
     end
+    if not session.signedIn then
+      Table.insert(items, Spacer().frame(height: 18.0))
+      Table.insert(items, LockScreen.power(session))
+    end
+    Table.insert(items, Spacer().frame(height: 28.0))
+
+    local middle = VStack(
+      alignment: StackAlignment.Center,
+      spacing: 6.0,
+      children: items
+    )
     local unlock = fn()
       session.unlock()
     end
     local tap = GestureArea(child: middle, onTap: unlock)
     return Wallpaper(child: tap, vignette: true)
+  end
+
+  -- Who is asked, the field their password goes in, and what is said
+  -- under it.
+  static fn asking(session: Session) -> table<View>
+    local person = System.person
+    if person == "" then
+      person = "Saule Linux"
+    end
+    local name = Text(person).font(16.0).foregroundStyle(Palette.text)
+
+    local field = TextField(
+      value: session.password,
+      placeholder: "Enter Password",
+      style: TextStyle(Palette.text, 14.0),
+      placeholderStyle: TextStyle(Palette.dimText, 14.0),
+      background: LockScreen.field,
+      border: Palette.clear,
+      focusBorder: Palette.clear,
+      padding: EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+      radius: 17.0,
+      width: LockScreen.fieldWidth,
+      enabled: not session.checking,
+      autofocus: true,
+      obscure: true,
+      node: LockScreen.node,
+      onChanged: fn(text: string)
+        session.password = text
+      end,
+      onSubmitted: fn(text: string)
+        session.submit(text)
+      end,
+      key: "password"
+    )
+
+    local said = " "
+    if session.checking then
+      said = "Checking…"
+    elseif session.wrong then
+      said = "That isn't the password. Try again."
+    elseif #Layouts.chosen > 1 then
+      said = "Typing in " .. Layouts.name(Layouts.code())
+    end
+    local note = Text(said).font(12.0).foregroundStyle(Palette.dimText)
+
+    return {
+      LockScreen.initial(person),
+      Spacer().frame(height: 2.0),
+      name,
+      Spacer().frame(height: 4.0),
+      field,
+      note,
+    }
+  end
+
+  -- Where a Mac has a person's picture: a disc with their first letter.
+  static fn initial(person: string) -> View
+    local letter = Text(String.upper(String.sub(person, 1, 1))).font(26.0)
+    local size = LockScreen.avatar
+    local disc = letter.foregroundStyle(Palette.text).centered().frame(
+      width: size,
+      height: size
+    )
+    return disc.background(
+      LockScreen.field,
+      size / 2.0,
+      border: Palette.launcherOutline
+    )
+  end
+
+  -- Restart and Shut Down, for a computer nobody has been let into:
+  -- nothing is open to lose, so neither asks first.
+  static fn power(session: Session) -> View
+    local restart = fn()
+      session.leave(SessionEnd.reboot)
+    end
+    local off = fn()
+      session.leave(SessionEnd.powerOff)
+    end
+    return HStack(
+      alignment: StackAlignment.Center,
+      sizing: StackSize.Fit,
+      spacing: 28.0
+    ) do
+      LockScreen.button("Restart", restart)
+      LockScreen.button("Shut Down", off)
+    end
+  end
+
+  static fn button(title: string, action: Action) -> View
+    local label = Text(title).font(12.0).foregroundStyle(Palette.dimText)
+    local inset = EdgeInsets.symmetric(horizontal: 12.0, vertical: 5.0)
+    return GestureArea(
+      child: label.padding(insets: inset).background(LockScreen.field, 13.0),
+      onTap: action
+    )
   end
 end

@@ -1,0 +1,122 @@
+-- The keyboard layouts typed with: which were chosen, which of them is
+-- in use, and going round them.
+--
+-- A layout is XKB's name for it ("lt", "de", "us"), or that with a
+-- variant in brackets ("de(nodeadkeys)"). Shine types by one at a time
+-- (`Keyboard.setLayout`), on Saule Linux only: nested in another desktop
+-- that desktop's layout types, there are none to choose, and all of this
+-- stands still.
+--
+-- Which were chosen is a setting (`WmOptions.keyboardLayouts`); until it
+-- is set, the one chosen when the system was installed is used.
+
+import shine
+from Machine import Machine
+from log import Logger
+
+export class Layouts
+  static local log: Logger = Logger("wm.layouts")
+
+  -- The layouts chosen, in the order they are gone round.
+  static chosen: table<string> = {"us"}
+
+  -- Which of them is typed with now.
+  static current: integer = 1
+
+  -- As Settings wrote them ("lt,us"), or "" when it never has.
+  static written: string = ""
+
+  -- Every layout there is to choose from, as "code<TAB>Name", by name.
+  -- Asked of Shine once: the answer is a file read.
+  static local known: table<string>? = nil
+
+  static fn all() -> table<string>
+    if Layouts.known == nil then
+      Layouts.known = Keyboard.layouts()
+    end
+    return Layouts.known!
+  end
+
+  -- Whether there are layouts to choose from here at all.
+  static fn offered() -> boolean
+    return #Layouts.all() > 0
+  end
+
+  -- What the layout `code` is called: "Lithuanian".
+  static fn name(code: string) -> string
+    local base = String.split(code, "(")[1]
+    for line in Layouts.all() do
+      local fields = String.split(line, "\t")
+      if fields[1] == base and #fields >= 2 then
+        return fields[2]
+      end
+    end
+    return code
+  end
+
+  -- Two letters for the bar: "LT".
+  static fn short(code: string) -> string
+    return String.upper(String.sub(String.split(code, "(")[1], 1, 2))
+  end
+
+  -- Use the layouts written as `list` ("lt,us"); "" is the one the
+  -- installer was told, or a US keyboard. The first is typed with.
+  static fn configure(list: string) -> nil
+    Layouts.written = list
+    local chosen: table<string> = {}
+    for code in String.split(list, ",") do
+      local trimmed = String.trim(code)
+      if trimmed != "" and #chosen < 4 then
+        Table.insert(chosen, trimmed)
+      end
+    end
+    if #chosen == 0 then
+      local installed = Machine.keyboard()
+      if installed != "" then
+        Table.insert(chosen, installed)
+      else
+        Table.insert(chosen, "us")
+      end
+    end
+
+    -- Left as it is when nothing changed: Settings applies every
+    -- setting at once, and typing must not jump back to the first
+    -- layout because a wallpaper was chosen.
+    if Table.concat(chosen, ",") == Table.concat(Layouts.chosen, ",") then
+      return
+    end
+    Layouts.chosen = chosen
+    Layouts.current = 1
+    Layouts.apply()
+  end
+
+  -- The layout typed with now.
+  static fn code() -> string
+    return Layouts.chosen[Layouts.current] ?? "us"
+  end
+
+  -- On to the next of the layouts chosen. False when there is only one.
+  static fn next() -> boolean
+    if #Layouts.chosen < 2 then
+      return false
+    end
+    Layouts.current = Layouts.current % #Layouts.chosen + 1
+    Layouts.apply()
+    return true
+  end
+
+  static fn apply() -> nil
+    if not Layouts.offered() then
+      return
+    end
+    local code = Layouts.code()
+    local parts = String.split(code, "(")
+    local variant = ""
+    if #parts > 1 then
+      variant = String.replace(parts[2], ")", "")
+    end
+    if not Keyboard.setLayout(parts[1], variant) then
+      Layouts.log.warn("no such keyboard layout", {layout: code})
+    end
+  end
+end

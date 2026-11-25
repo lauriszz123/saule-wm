@@ -1,0 +1,94 @@
+-- What a key just changed, shown for a moment near the bottom of the
+-- screen as a Mac shows it: the volume or the screen's brightness as a
+-- picture and a bar filled as far as it is, or the keyboard layout by
+-- name.
+--
+--                  ┌──────────────────────────┐
+--                  │ 🔊  ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱ │
+--                  └──────────────────────────┘
+--
+-- It takes no press and no key: what is under it is used as if it were
+-- not there. `Session.hud` says what to show; `Session.hudDue` takes it
+-- away again.
+
+from uikit import *
+from wm import Layouts, Session, System
+from Palette import Palette
+from StatusGlyph import StatusGlyph
+from StatusItems import StatusItems
+from SunLogo import SunLogo
+
+export class Hud extends View
+  session: Session
+
+  static width: float = 250.0
+  static height: float = 46.0
+
+  -- How far up from the bottom of the screen it stands.
+  static rise: float = 90.0
+
+  -- The bar's own height, and the part of it not filled.
+  static bar: float = 6.0
+  static empty: Color = Color(1.0, 1.0, 1.0, 0.22)
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local content = Hud.content(self.session.hud)
+    local inset = EdgeInsets.symmetric(horizontal: 16.0)
+    local glass = Backdrop(
+      child: content.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: Hud.height / 2.0
+    )
+    local pill = glass.background(
+      nil,
+      Hud.height / 2.0,
+      border: Palette.launcherOutline
+    )
+    local sized = pill.frame(width: Hud.width, height: Hud.height)
+    return VStack(alignment: StackAlignment.Center) do
+      Spacer()
+      show(sized)
+      Spacer().frame(height: Hud.rise)
+    end
+  end
+
+  static fn content(what: string) -> View
+    if what == "layout" then
+      local name = Text(Layouts.name(Layouts.code())).font(14.0)
+      return name.foregroundStyle(Palette.text).centered()
+    end
+    if what == "brightness" then
+      local sun = SunLogo(Palette.text).frame(width: 20.0, height: 20.0)
+      return Hud.level(sun, System.brightness)
+    end
+    local kind, level = StatusItems.sound()
+    local speaker = StatusGlyph(kind, level, Palette.text)
+    local amount = System.volume
+    if System.muted then
+      amount = 0
+    end
+    return Hud.level(speaker.frame(width: 24.0, height: 20.0), amount)
+  end
+
+  -- A picture, and a bar filled to `percent`.
+  static fn level(picture: View, percent: integer) -> View
+    local share = (Math.clamp(percent, 0, 100) as float) / 100.0
+    local whole = Hud.width - 32.0 - 24.0 - 12.0
+    local filled = Spacer().frame(width: whole * share, height: Hud.bar)
+    local rest = Spacer().frame(width: whole * (1.0 - share), height: Hud.bar)
+    local bar = HStack(alignment: StackAlignment.Center, sizing: StackSize.Fit) do
+      filled.background(Palette.text, Hud.bar / 2.0)
+      rest.background(Hud.empty, Hud.bar / 2.0)
+    end
+    return HStack(alignment: StackAlignment.Center, spacing: 12.0) do
+      show(picture)
+      show(bar)
+    end
+  end
+end

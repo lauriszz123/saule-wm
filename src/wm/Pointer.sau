@@ -17,6 +17,29 @@ export class Pointer
   -- A window gets the keyboard when the pointer moves onto it.
   static followsFocus: boolean = false
 
+  -- A trackpad's own way: fingers are not a mouse.
+  static padSpeed: float = 1.0
+  static padScrollSpeed: float = 1.0
+  static padNatural: boolean = true
+  static tapToClick: boolean = true
+
+  static fn configureTrackpad(
+    speed: float,
+    scrollSpeed: float,
+    natural: boolean,
+    tapToClick: boolean
+  ) -> nil
+    Pointer.padSpeed = Math.clamp(speed, 0.25, 3.0)
+    Pointer.padScrollSpeed = Math.clamp(scrollSpeed, 0.25, 3.0)
+    Pointer.padNatural = natural
+    Pointer.tapToClick = tapToClick
+
+    Mouse.setTouchpadSpeed(Pointer.padSpeed)
+    Mouse.setTouchpadScrollSpeed(Pointer.padScrollSpeed)
+    Mouse.setTouchpadNaturalScrolling(Pointer.padNatural)
+    Mouse.setTapToClick(Pointer.tapToClick)
+  end
+
   -- Use these, from Settings. Speeds are kept to what makes a pointer
   -- usable at all.
   static fn configure(
