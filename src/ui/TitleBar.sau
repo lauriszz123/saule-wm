@@ -71,7 +71,7 @@ export class TitleBar extends View
     mark: string,
     lit: boolean,
     enabled: boolean,
-    press: fn() -> nil
+    press: Action
   ) -> View
     local size = Palette.buttonSize
     local button = WindowButton(colour, mark, lit, enabled, press)

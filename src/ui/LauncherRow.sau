@@ -8,12 +8,12 @@ from Palette import Palette
 export class LauncherRow extends View
   program: Program
   selected: boolean
-  onLaunch: fn() -> nil
+  onLaunch: Action
 
   fn init(
     program: Program,
     selected: boolean,
-    onLaunch: fn() -> nil,
+    onLaunch: Action,
     key: string? = nil
   )
     self.super(key)

@@ -9,19 +9,23 @@
 
 from uikit import *
 
+-- One step of dragging a gap: the handle's element, and the pointer's
+-- position along the split.
+type GapStep = fn(Element, float) -> nil
+
 export class GapHandle extends View
   horizontal: boolean
 
   -- The pointer was pressed here, at a position along the split; it moved
   -- while held; it was let go. Each is given this handle's element.
-  onStart: fn(Element, float) -> nil
-  onMove: fn(Element, float) -> nil
+  onStart: GapStep
+  onMove: GapStep
   onEnd: fn(Element) -> nil
 
   fn init(
     horizontal: boolean,
-    onStart: fn(Element, float) -> nil,
-    onMove: fn(Element, float) -> nil,
+    onStart: GapStep,
+    onMove: GapStep,
     onEnd: fn(Element) -> nil,
     key: string? = nil
   )

@@ -141,7 +141,7 @@ export class LauncherView extends View
     matches: table<Program>,
     index: integer,
     typed: string,
-    launch: fn(integer) -> nil
+    launch: ValueChanged<integer>
   ) -> View
     local rows: table<View> = {}
     local count = #matches

@@ -105,7 +105,7 @@ export class SystemMenu extends View
     title: string,
     shortcut: table<string>,
     enabled: boolean,
-    pick: fn() -> nil
+    pick: Action
   ) -> View
     return SystemMenuItem(title, shortcut, enabled, pick)
   end

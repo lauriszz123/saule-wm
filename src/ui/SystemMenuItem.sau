@@ -12,13 +12,13 @@ export class SystemMenuItem extends View
   -- "super", "q"}. None for an item without one.
   shortcut: table<string>
   enabled: boolean
-  onPick: fn() -> nil
+  onPick: Action
 
   fn init(
     title: string,
     shortcut: table<string>,
     enabled: boolean,
-    onPick: fn() -> nil,
+    onPick: Action,
     key: string? = nil
   )
     self.super(key)

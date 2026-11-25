@@ -6,17 +6,21 @@
 
 from uikit import *
 
+-- One step of a drag: the element it was given to, and where the pointer
+-- is, in the window manager's own coordinates.
+type DragStep = fn(Element, float, float) -> nil
+
 export class DragArea extends View
   -- The pointer's look over it and while dragging: "arrow" to leave it be.
   cursor: string
 
-  onStart: fn(Element, float, float) -> nil
-  onMove: fn(Element, float, float) -> nil
+  onStart: DragStep
+  onMove: DragStep
 
   fn init(
     cursor: string,
-    onStart: fn(Element, float, float) -> nil,
-    onMove: fn(Element, float, float) -> nil,
+    onStart: DragStep,
+    onMove: DragStep,
     key: string? = nil
   )
     self.super(key)

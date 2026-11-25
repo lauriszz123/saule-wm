@@ -18,14 +18,14 @@ export class WindowButton extends View
   lit: boolean
 
   enabled: boolean
-  onPress: fn() -> nil
+  onPress: Action
 
   fn init(
     colour: Color,
     mark: string,
     lit: boolean,
     enabled: boolean,
-    onPress: fn() -> nil,
+    onPress: Action,
     key: string? = nil
   )
     self.super(key)

@@ -111,7 +111,7 @@ export class ConfirmDialog extends View
   end
 
   -- One of the two buttons: its title in the middle of a rounded pill.
-  static fn button(title: string, fill: Color, pressed: fn() -> nil) -> View
+  static fn button(title: string, fill: Color, pressed: Action) -> View
     local label = Text(title).font(13.0).foregroundStyle(Palette.text)
     local shown = label.centered().background(fill, 7.0)
     return GestureArea(child: shown, onTap: pressed)
