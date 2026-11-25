@@ -1,0 +1,9 @@
+-- A sound card that can be played through, as Settings lists them.
+
+export class SoundOutput
+  -- The card's number, as the system counts them.
+  index: integer = 0
+  name: string = ""
+  -- It is the one in use.
+  chosen: boolean = false
+end

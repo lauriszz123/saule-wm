@@ -1,0 +1,114 @@
+-- The computer itself, as Settings shows it: what it has (a sound card, a
+-- backlight, a radio, a battery, a trackpad) and how each stands now.
+-- Settings asks for it again every second or so while one of its panes is
+-- showing any of it, so what a key or the bar changed shows there too.
+--
+-- Copied across the process boundary, so plain values only. Where
+-- nothing answers for the computer (the window manager nested in another
+-- desktop) `managed` is false and the rest says there is nothing.
+
+from InputDevice import InputDevice
+from WifiNetwork import WifiNetwork
+from SoundOutput import SoundOutput
+from BluetoothDevice import BluetoothDevice
+
+export class MachineInfo
+  -- Whether anything answers for the computer at all: on Saule Linux.
+  managed: boolean = false
+
+  -- What it is typed on and pointed at with. Empty when nested: the
+  -- desktop around has the devices.
+  devices: table<InputDevice> = {}
+
+  -- Sound: whether there is a card, its volume from 0 to 100, and
+  -- whether it is silenced.
+  soundCard: boolean = false
+  volume: integer = 0
+  muted: boolean = false
+
+  -- The microphone: whether the card records, its level from 0 to 100,
+  -- and whether it is off. Whether headphones are in their socket: "in",
+  -- "out", or "none" where the card doesn't say. And every card that can
+  -- be played through, where there is more than the one.
+  microphone: boolean = false
+  inputVolume: integer = 0
+  inputMuted: boolean = false
+  headphones: string = "none"
+  outputs: table<SoundOutput> = {}
+
+  -- Bluetooth: "none" (no radio, or the system has no Bluetooth), "off"
+  -- or "on"; whether it is looking for devices; the devices found and
+  -- paired; and while a keyboard is being paired, its address and the
+  -- digits to type on it.
+  bluetooth: string = "none"
+  bluetoothScanning: boolean = false
+  bluetoothDevices: table<BluetoothDevice> = {}
+  passkeyFor: string = ""
+  passkey: string = ""
+
+  -- When the clock was last set from a time server, in Unix seconds; 0
+  -- when it never was.
+  clockSynced: integer = 0
+
+  -- The screen's backlight: whether there is one to set, and how bright
+  -- from 0 to 100.
+  backlight: boolean = false
+  brightness: integer = 0
+
+  -- A cable: whether the computer has a place for one, whether one is
+  -- in, and the address it was given ("" for none).
+  wired: boolean = false
+  cable: boolean = false
+  wiredAddress: string = ""
+
+  -- Wi-Fi: "none" (no radio), "off" or "on"; then "idle", "joining",
+  -- "joined" or "failed", the network that is about, its strength and
+  -- the address it gave; and the networks in range.
+  radio: string = "none"
+  wifi: string = "idle"
+  wifiName: string = ""
+  wifiSignal: integer = 0
+  wifiAddress: string = ""
+  networks: table<WifiNetwork> = {}
+
+  -- The battery: whether there is one, how full from 0 to 100, and
+  -- whether it is being charged.
+  battery: boolean = false
+  charge: integer = 0
+  charging: boolean = false
+
+  -- The computer's name and the time zone it is in ("Europe/Vilnius"),
+  -- and whether they are kept anywhere: without a disk they aren't, and
+  -- there is nothing to set.
+  name: string = ""
+  timeZone: string = "UTC"
+  kept: boolean = false
+
+  -- Who the computer is for, the short name their account goes by (what
+  -- their home folder is called), and whether a password is asked for
+  -- when it starts and when it is unlocked.
+  person: string = ""
+  account: string = ""
+  hasPassword: boolean = false
+
+  -- How many times the password has been asked to change, and how the
+  -- last went: "done", "wrong" (the old one wasn't right), "failed" or
+  -- "none". Settings asks, waits for the count to go up, and reads this.
+  passwordChanges: integer = 0
+  passwordChange: string = "none"
+
+  -- Whether keyboard layouts can be chosen here at all, and the one
+  -- typed with now ("lt").
+  layoutsOffered: boolean = false
+  layout: string = "us"
+
+  -- Whether there is a device of `kind`.
+  fn has(kind: string) -> boolean
+    for device in self.devices do
+      if device.kind == kind then
+        return true
+      end
+    end
+    return false
+  end
+end

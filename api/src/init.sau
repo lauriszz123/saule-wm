@@ -19,4 +19,10 @@ export from KeyActions import *
 export from StorageVolume import *
 export from StorageCategory import *
 export from StorageReport import *
+export from InputDevice import *
+export from WifiNetwork import *
+export from SoundOutput import *
+export from BluetoothDevice import *
+export from MachineInfo import *
 export from WmSettings import *
+export from WmApp import *

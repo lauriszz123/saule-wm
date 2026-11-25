@@ -7,10 +7,14 @@
 --   wm.apply(options)
 --
 -- Each call waits for the answer, which the window manager gives on its
--- next frame. A change applies at once and lasts until the window manager
--- stops: there is nowhere to keep it across a reboot yet.
+-- next frame. A change applies at once, and is kept.
+--
+-- The computer itself is here too (`machine` and what follows it): its
+-- sound, screen, network, name and password are the system's to change,
+-- and the window manager is who the system listens to.
 
 from WmOptions import WmOptions
+from MachineInfo import MachineInfo
 from SystemInfo import SystemInfo
 from StorageReport import StorageReport
 
@@ -37,4 +41,66 @@ export extern interface WmSettings
   -- window manager's own shortcuts too: so Settings can be shown the keys
   -- of a new shortcut. It ends when that window loses the keyboard.
   fn recordKeys(on: boolean)
+
+  -- The computer: what it has and how each thing stands now.
+  fn machine() -> MachineInfo
+
+  -- The keyboard layouts there are to choose from, each "code<TAB>Name"
+  -- ("lt<TAB>Lithuanian"), by name; and the time zones, each
+  -- "Zone/Id<TAB>City<TAB>Region".
+  fn layouts() -> table<string>
+  fn zones() -> table<string>
+
+  -- Sound and the screen: 0 to 100.
+  fn setVolume(volume: integer)
+  fn setMuted(muted: boolean)
+  fn setBrightness(percent: integer)
+
+  -- Wi-Fi: the radio, joining a network (`password` "" for one that
+  -- wants none, or whose password is kept), forgetting one, and looking
+  -- for networks again.
+  fn setRadio(on: boolean)
+  fn joinNetwork(name: string, password: string)
+  fn forgetNetwork(name: string)
+  fn scanNetworks()
+
+  -- The computer's name (kept as letters, digits and hyphens) and its
+  -- time zone.
+  fn setComputerName(name: string)
+  fn setTimeZone(zone: string)
+
+  -- Who the computer is for, and their password: `old` must be the
+  -- password there is ("" when there is none), and `new` "" takes it
+  -- away. How it went is `MachineInfo.passwordChange`.
+  fn setPerson(name: string)
+  fn setPassword(old: string, new: string)
+
+  -- Sound beyond the volume: the microphone's level and switch, and
+  -- which card plays.
+  fn setInputVolume(volume: integer)
+  fn setInputMuted(muted: boolean)
+  fn setOutput(card: integer)
+
+  -- Bluetooth: `action` is "on", "off", "scan", or with a device's
+  -- address "pair", "connect", "disconnect" or "forget".
+  fn bluetooth(action: string, address: string)
+
+  -- Ask a time server the time now.
+  fn syncClock()
+
+  -- An app saying what it is, for the menu the bar shows under its
+  -- name: what it is called, its version, a line about it, and whether
+  -- it has settings to open (it is then sent Ctrl+comma when its
+  -- "Settings…" is chosen, as a Mac's apps are sent Command+comma).
+  -- Said once, when the app starts; it is known by its process.
+  fn describeApp(name: string, version: string, about: string, settings: boolean)
+
+  -- Show a notification for a few seconds: a title and a line under it.
+  fn notify(title: string, body: string)
+
+  -- Start the app called `name` ("editor", whatever its case), as the
+  -- launcher would, with `arguments` for it: the file a file browser was
+  -- asked to open, the folder a terminal should start in. False when
+  -- there is no app by that name.
+  fn launch(name: string, arguments: table<string>) -> boolean
 end

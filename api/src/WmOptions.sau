@@ -16,6 +16,15 @@ export class WmOptions
   -- Where the next window goes: "beside" or "below" the focused one.
   newWindows: string = "beside"
 
+  -- How windows are arranged: tiled, each given its share of the screen,
+  -- or (`windowed`) every one its own size, dragged about and
+  -- overlapping, as on a Mac. Switching moves the windows there are.
+  windowed: boolean = false
+
+  -- The Dock along the foot of the screen: the apps, and the windows
+  -- that were minimised.
+  dock: boolean = true
+
   -- The accent colour, by name: see `Presets.accents`.
   accent: string = "blue"
 
@@ -36,6 +45,21 @@ export class WmOptions
 
   -- Which button clicks: "left", or "right" for a left hand.
   primaryButton: string = "left"
+
+  -- A trackpad's own: how far the pointer goes for a finger's movement
+  -- and two fingers scroll, whether what is scrolled moves the way the
+  -- fingers do (as on a Mac, it does unless turned off), and whether a
+  -- tap is a click.
+  trackpadSpeed: float = 1.0
+  trackpadScrollSpeed: float = 1.0
+  trackpadNaturalScrolling: boolean = true
+  tapToClick: boolean = true
+
+  -- The keyboard layouts typed with, by XKB's names, joined with commas:
+  -- "lt,us". The first is the one in use when the computer starts; a
+  -- shortcut goes round them. "" is the one chosen when the system was
+  -- installed, or a US keyboard.
+  keyboardLayouts: string = ""
 
   -- A window gets the keyboard when the pointer moves onto it, without a
   -- click.

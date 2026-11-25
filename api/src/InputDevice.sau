@@ -1,0 +1,16 @@
+-- Something the computer is typed on or pointed at with, as Settings
+-- lists them: Settings offers a pane for a mouse while there is a mouse,
+-- and for a trackpad on a computer that has one.
+
+export class InputDevice
+  -- "keyboard", "mouse", "touchpad", "touchscreen" or "tablet" (a pointer
+  -- that says where it is and not how far it moved: a drawing tablet, or
+  -- a virtual machine's pointer).
+  kind: string = ""
+
+  -- Part of the computer, not plugged into it.
+  builtIn: boolean = false
+
+  -- As the device names itself: "AT Translated Set 2 keyboard".
+  name: string = ""
+end

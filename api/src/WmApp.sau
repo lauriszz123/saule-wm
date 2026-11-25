@@ -1,0 +1,57 @@
+-- What an app says to the window manager about itself, in one line each:
+--
+--   WmApp.describe("Editor", "0.1", "Plain text in a window.", settings: true)
+--   WmApp.notify("Copied", "12 files are in Documents.")
+--
+-- Outside a window manager there is nobody to tell, and both do nothing.
+
+from WmService import WmService
+from WmSettings import WmSettings
+
+export class WmApp
+  static local wm: WmSettings? = nil
+
+  static local fn connected() -> WmSettings?
+    if WmApp.wm == nil then
+      try
+        WmApp.wm = WmSettings.connect(WmService.name)
+      catch e: string
+        WmApp.wm = nil
+      end
+    end
+    return WmApp.wm
+  end
+
+  -- Say what this app is, for the menu under its name in the bar: its
+  -- name, version and a line about it, and whether it has settings to
+  -- open (it is then sent Ctrl+comma when "Settings…" is chosen).
+  static fn describe(
+    name: string,
+    version: string,
+    about: string,
+    settings: boolean = false
+  ) -> nil
+    local wm = WmApp.connected()
+    if wm == nil then
+      return
+    end
+    try
+      wm!.describeApp(name, version, about, settings)
+    catch e: string
+      WmApp.wm = nil
+    end
+  end
+
+  -- Show a notification for a few seconds.
+  static fn notify(title: string, body: string) -> nil
+    local wm = WmApp.connected()
+    if wm == nil then
+      return
+    end
+    try
+      wm!.notify(title, body)
+    catch e: string
+      WmApp.wm = nil
+    end
+  end
+end

@@ -17,6 +17,8 @@ export class KeyActions
     KeyAction("launcher", "Open the launcher"),
     KeyAction("lock", "Lock the screen"),
     KeyAction("forceQuit", "Force quit the window's app"),
+    KeyAction("layout", "Switch the keyboard layout"),
+    KeyAction("screenshot", "Take a picture of the screen"),
     KeyAction("quit", "Quit the window manager"),
   }
 
@@ -24,6 +26,8 @@ export class KeyActions
   static windows: KeyAction[] = {
     KeyAction("close", "Close the window"),
     KeyAction("float", "Float or tile the window"),
+    KeyAction("minimise", "Minimise the window"),
+    KeyAction("windowed", "Switch between tiled and windowed"),
     KeyAction("resize", "Resize the window"),
     KeyAction("beside", "Open the next window beside"),
     KeyAction("below", "Open the next window below"),

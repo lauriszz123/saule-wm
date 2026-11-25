@@ -1,0 +1,14 @@
+-- A Wi-Fi network in range, as Settings lists them.
+
+export class WifiNetwork
+  name: string = ""
+
+  -- 0 to 100.
+  signal: integer = 0
+
+  -- It wants a password.
+  secured: boolean = false
+
+  -- It was joined before, and its password is kept.
+  known: boolean = false
+end

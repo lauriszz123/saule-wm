@@ -1,0 +1,10 @@
+-- A Bluetooth device near the computer or paired with it, as Settings
+-- lists them.
+
+export class BluetoothDevice
+  -- Its address, "AA:BB:CC:DD:EE:FF": what it is asked for by.
+  address: string = ""
+  name: string = ""
+  paired: boolean = false
+  connected: boolean = false
+end
