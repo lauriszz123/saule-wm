@@ -88,10 +88,11 @@ export class GraphicsCard
       return GraphicsCard.answer
     end
     GraphicsCard.output ..= Bytes.toString(query!.read()) ?? ""
-    if query!.running() then
+    -- Finished and all of it read: a program can end with the last of
+    -- what it printed still on its way.
+    if query!.poll() == nil or not query!.atEof() then
       return ""
     end
-    GraphicsCard.output ..= Bytes.toString(query!.read()) ?? ""
     GraphicsCard.query = nil
     GraphicsCard.answer = GraphicsCard.parse(GraphicsCard.output)
     return GraphicsCard.answer

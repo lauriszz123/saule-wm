@@ -240,6 +240,13 @@ export class Keymap
   -- Where the window manager runs: on the screen of Saule Linux, or in a
   -- window on another system's desktop.
   static fn guessHost() -> string
+    -- Said outright: `SAULE_WM_HOST=saule` has a window manager nested in
+    -- another desktop behave, and report the system, as it does on Saule
+    -- Linux — for trying that side of it without booting one.
+    local asked = Os.getenv("SAULE_WM_HOST")
+    if asked != nil and asked! != "" then
+      return asked!
+    end
     match Os.platform()
       case OsPlatform.Macos then
         return "macos"

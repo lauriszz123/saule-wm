@@ -2,6 +2,11 @@
 -- `~/.config/saule/wm.conf` (on Saule Linux the home is on the data disk;
 -- with no data disk it is in memory and they last until power-off).
 --
+-- Saving waits until the settings have stopped changing for a moment
+-- (`saveSoon`): a slider being dragged applies a new value every frame,
+-- and each save is a write that goes straight to the disk, which the
+-- window manager would stop for sixty times a second.
+--
 -- One `name = value` a line, so a person can read and fix it by hand; a
 -- changed shortcut is `shortcut.<action> = <keys>`. A line that makes no
 -- sense is skipped, and a setting missing keeps its default.
@@ -12,6 +17,37 @@ from Storage import Storage
 
 export class Preferences
   static local log: Logger = Logger("wm.preferences")
+
+  -- How long the settings must stay as they are before they are saved,
+  -- in milliseconds.
+  static settle: integer = 400
+
+  -- What is waiting to be saved, and when it last changed.
+  static local waiting: WmOptions? = nil
+  static local changedAt: integer = 0
+
+  -- Save `options` once they have stopped changing (see `frame`).
+  static fn saveSoon(options: WmOptions) -> nil
+    Preferences.waiting = options
+    Preferences.changedAt = Os.timeMillis()
+  end
+
+  -- Every frame: save what is waiting, if it has settled.
+  static fn frame() -> nil
+    local settled = Os.timeMillis() - Preferences.changedAt >= Preferences.settle
+    if Preferences.waiting != nil and settled then
+      Preferences.flush()
+    end
+  end
+
+  -- Save what is waiting now: the window manager is about to end.
+  static fn flush() -> nil
+    local options = Preferences.waiting
+    if options != nil then
+      Preferences.waiting = nil
+      Preferences.save(options!)
+    end
+  end
 
   static fn path() -> string
     return Storage.settingsFolder() .. "/wm.conf"

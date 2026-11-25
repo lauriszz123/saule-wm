@@ -33,6 +33,14 @@ export class SettingsService implements WmSettings
   -- first) leaves this one without Settings rather than without windows.
   static fn publish(session: Session) -> nil
     GraphicsCard.start()
+    -- Find the disks now, beside everything else, so the answer is there
+    -- when About or Settings first asks; and each frame, save settings that
+    -- have settled and take in what `df` has said.
+    Storage.ask()
+    Table.insert(session.chores, fn()
+      Preferences.frame()
+      Storage.collect()
+    end)
     local service = SettingsService(session)
     local saved = Preferences.load()
     if saved != nil then
@@ -77,7 +85,7 @@ export class SettingsService implements WmSettings
 
   fn apply(options: WmOptions)
     self.use(options)
-    Preferences.save(self.options())
+    Preferences.saveSoon(self.options())
     SettingsService.log.info(
       "settings applied",
       {

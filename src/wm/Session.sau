@@ -63,6 +63,11 @@ export class Session
   -- runs. The desktop ends the app when this is set.
   exitCode: integer
 
+  -- Run at the start of every frame: what the parts of the window manager
+  -- that draw nothing do a little at a time (the settings service saves
+  -- settings, and takes in what programs it started have answered).
+  chores: table<fn() -> nil>
+
   -- The apps the window manager was started with, which the launcher
   -- offers as well as the installed ones.
   local given: table<string>
@@ -89,6 +94,7 @@ export class Session
     self.recordingFor = 0
     self.confirming = ""
     self.exitCode = 0
+    self.chores = {}
     self.given = {}
     self.started = false
     self.changed = false
@@ -400,6 +406,9 @@ export class Session
     end
 
     Launcher.pump()
+    for chore in self.chores do
+      chore()
+    end
 
     for ev in Compositor.poll() do
       match ev.kind

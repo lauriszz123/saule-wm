@@ -19,11 +19,15 @@ The code is layered; each folder only uses the ones above it:
 -- `App` too: `run` is inherited from it.
 from uikit import App
 from WindowManagerApp import WindowManagerApp
+from service import Preferences
 
 class Main
   static fn main()
     local app = WindowManagerApp(Os.args())
     app.run()
+
+    -- A setting changed a moment before leaving is still waiting.
+    Preferences.flush()
 
     -- Restart, Shut Down and Log Out end the app with a code for init.
     if app.session.exitCode != 0 then

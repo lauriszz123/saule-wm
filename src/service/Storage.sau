@@ -10,11 +10,13 @@
 -- directory is on.
 --
 -- Settings and About ask again every second or so while they show this,
--- and each answer costs the window manager, which draws the screen, the
--- time it takes: `df` is another program to start, and counting a folder
--- reads every file in it. So what changes is found again only so often
--- (see the times below), and what can't change while the system runs — a
--- drive's model, the apps in the image — once.
+-- and the window manager, which draws the screen, must not stop to find
+-- the answer: on a netbook starting a program takes a tenth of a second,
+-- and every window would stutter. So `df` runs beside it (`ask`, started
+-- when the last answer is `volumesFor` old) and the answer given is the
+-- last one that came back; counting a folder, which reads every file in
+-- it, is done only so often; and what can't change while the system runs
+-- — a drive's model, the apps in the image — once.
 
 from "wmapi" import StorageCategory, StorageReport, StorageVolume
 from wm import Keymap
@@ -29,12 +31,30 @@ export class Storage
   -- and `forever`, for what is counted once.
   static volumesFor: integer = 2000
   static homeFor: integer = 10000
-  static systemFor: integer = 30000
+  static systemFor: integer = 300000
   static forever: integer = -1
+
+  -- What is in `/` but is not the system's own files: what the kernel
+  -- makes up, what lives in memory only while it runs, and where other
+  -- file systems are mounted.
+  static notSystem: table<string> = {
+    "proc",
+    "sys",
+    "dev",
+    "run",
+    "tmp",
+    "data",
+    "mnt",
+    "media",
+  }
 
   -- The volumes as last found, and when (0: never).
   static local lastVolumes: table<StorageVolume> = {}
   static local volumesAt: integer = 0
+
+  -- `df` while it runs, and what it has printed so far.
+  static local query: Process? = nil
+  static local output: string = ""
 
   -- What each drive is, by device and mount point: found once.
   static local drives: table<string, StorageVolume> = {}
@@ -88,6 +108,10 @@ export class Storage
   -- available".
   static fn summary() -> string
     local volumes = Storage.volumes()
+    -- Not known yet: `df` has not answered for the first time.
+    if Storage.volumesAt == 0 then
+      return ""
+    end
     local data = Os.getenv("SAULE_DATA") ?? ""
     local main = data
     if main == "" then
@@ -111,27 +135,58 @@ export class Storage
     return ""
   end
 
-  -- Every volume that is a real drive, as found in the last `volumesFor`.
+  -- Every volume that is a real drive, as `df` last listed them; asking
+  -- it again, beside the window manager, when that was `volumesFor` ago.
+  -- Empty until the first answer is back (see `ask`).
   static fn volumes() -> table<StorageVolume>
-    local now = Os.timeMillis()
-    if Storage.volumesAt == 0 or now - Storage.volumesAt >= Storage.volumesFor then
-      Storage.lastVolumes = Storage.findVolumes()
-      Storage.volumesAt = now
+    Storage.collect()
+    local age = Os.timeMillis() - Storage.volumesAt
+    if Storage.volumesAt == 0 or age >= Storage.volumesFor then
+      Storage.ask()
     end
     return Storage.lastVolumes
   end
 
-  -- Every volume `df` lists that is a real drive: one line each, a drive
+  -- Start `df`, unless it is running already. The window manager does it
+  -- once as it starts, so there is an answer by the time anyone asks.
+  static fn ask() -> nil
+    if Storage.query != nil or Os.platform() == OsPlatform.Windows then
+      return
+    end
+    Storage.output = ""
+    Storage.query = Os.spawn("df", {"-Pk"})
+  end
+
+  -- Take what `df` has printed; once it has finished and all of it has
+  -- been read, that is the answer.
+  --
+  -- Both, not just finished: a program can end with the last of what it
+  -- printed still on its way, and a list read then is cut short — which
+  -- showed as a disk missing from Settings until the next time `df` ran.
+  -- A `df` that failed, or said nothing, changes nothing: the disks last
+  -- found are still the best answer there is.
+  static fn collect() -> nil
+    local query = Storage.query
+    if query == nil then
+      return
+    end
+    Storage.output ..= Bytes.toString(query!.read()) ?? ""
+    local code = query!.poll()
+    if code == nil or not query!.atEof() then
+      return
+    end
+    Storage.query = nil
+    Storage.volumesAt = Os.timeMillis()
+    local found = Storage.parse(Storage.output)
+    if code! == 0 or #found > 0 then
+      Storage.lastVolumes = found
+    end
+  end
+
+  -- The real drives in what `df -Pk` printed: one line each, a drive
   -- mounted in several places once, where it is mounted shortest.
-  static fn findVolumes() -> table<StorageVolume>
+  static fn parse(out: string) -> table<StorageVolume>
     local found: table<StorageVolume> = {}
-    if Os.platform() == OsPlatform.Windows then
-      return found
-    end
-    local code, out, _ = Os.capture("df -Pk 2>/dev/null")
-    if code != 0 and out == "" then
-      return found
-    end
     local seen: table<string, StorageVolume> = {}
     local lines = String.split(out, "\n")
     for i = 2, #lines do
@@ -272,12 +327,11 @@ export class Storage
     volume.driveBytes = sectors * 512
     local rotational = Storage.firstLine(sys .. "/queue/rotational") == "1"
     local removable = Storage.firstLine(sys .. "/removable") == "1"
-    local _, path, _ = Os.capture("readlink -f " .. sys .. " 2>/dev/null")
-    Storage.link(volume, path)
+    local usb = Storage.link(volume, sys, disk)
     if volume.rpm > 1 then
       rotational = true
     end
-    if removable or String.contains(path, "/usb") then
+    if removable or usb then
       volume.kind = "usb"
     elseif rotational then
       volume.kind = "hdd"
@@ -333,24 +387,34 @@ export class Storage
     return String.trim(String.join("", letters))
   end
 
-  -- How a SATA disk is connected, from its link: "SATA 1.5 Gb/s".
-  static fn link(volume: StorageVolume, path: string) -> nil
-    for part in String.split(String.trim(path), "/") do
-      if String.starts(part, "ata") and (String.sub(part, 4) as integer?) != nil then
+  -- How the disk at `sys` (`/sys/block/<disk>`) is connected: "SATA 1.5
+  -- Gb/s", "USB", "NVMe". Whether it is on a USB port.
+  --
+  -- A SATA or USB disk's `device` is three folders below what it hangs
+  -- off: `…/ata1/host0/target0:0:0/0:0:0:0`, or a USB interface in place
+  -- of `ata1`. A SATA port has its link in it, which knows the speed; a
+  -- USB interface says what class of device it is.
+  static fn link(volume: StorageVolume, sys: string, disk: string) -> boolean
+    if String.starts(disk, "nvme") then
+      volume.connection = "NVMe"
+      return false
+    end
+    local port = sys .. "/device/../../.."
+    if Os.exists(port .. "/bInterfaceClass") then
+      volume.connection = "USB"
+      return true
+    end
+    for entry in Storage.entries(port) do
+      if String.starts(entry, "link") then
         local speed = Storage.firstLine(
-          "/sys/class/ata_link/link" .. String.sub(part, 4) .. "/sata_spd"
+          port .. "/" .. entry .. "/ata_link/" .. entry .. "/sata_spd"
         )
         if speed != "" and speed != "<unknown>" then
           volume.connection = "SATA " .. String.replace(speed, "Gbps", "Gb/s")
         end
-        return
       end
     end
-    if String.contains(path, "/usb") then
-      volume.connection = "USB"
-    elseif String.contains(path, "/nvme") then
-      volume.connection = "NVMe"
-    end
+    return false
   end
 
   -- The disk a partition is on: sda1 → sda, nvme0n1p2 → nvme0n1,
@@ -422,9 +486,10 @@ export class Storage
     return volume
   end
 
-  -- What the used space holds: on the main volume, Saule's settings and
-  -- (on Saule Linux) the home; in memory, the apps, the wallpapers and the
-  -- rest of the system.
+  -- What the used space holds, named as a Mac's Storage names such things:
+  -- on the main volume, "Settings" and (on Saule Linux) "Documents", the
+  -- rest of the home; in memory, "Applications", "Wallpapers" and "Saule
+  -- Linux", the rest of the system.
   static fn categories(
     volumes: table<StorageVolume>,
     main: string,
@@ -439,7 +504,7 @@ export class Storage
           Storage.sized(home, Storage.homeFor) - settings,
           0
         )
-        Table.insert(out, Storage.category("Home", main, files))
+        Table.insert(out, Storage.category("Documents", main, files))
       end
     end
     if Keymap.host == "saule" then
@@ -448,10 +513,10 @@ export class Storage
         "/usr/share/saule/wallpapers",
         Storage.forever
       )
-      Table.insert(out, Storage.category("Apps", "/", apps))
+      Table.insert(out, Storage.category("Applications", "/", apps))
       Table.insert(out, Storage.category("Wallpapers", "/", wallpapers))
       local rest = Math.max(Storage.systemBytes() - apps - wallpapers, 0)
-      Table.insert(out, Storage.category("System", "/", rest))
+      Table.insert(out, Storage.category("Saule Linux", "/", rest))
     end
     return out
   end
@@ -497,9 +562,8 @@ export class Storage
       return Storage.counted["system"] ?? 0
     end
     local total = 0
-    for name in Os.list("/") do
-      local skip = name == "proc" or name == "sys" or name == "dev" or name == "data"
-      if not skip and name != "run" and name != "tmp" then
+    for name in Storage.entries("/") do
+      if not Table.contains(Storage.notSystem, name) then
         total += Storage.size("/" .. name)
       end
     end
@@ -543,6 +607,18 @@ export class Storage
     return 0
   end
 
+  -- What is in `folder`; nothing, for one that may not be read (another
+  -- account's home). `Os.list` ends the program on such a folder and can't
+  -- be caught, so the folder is opened first, which only says no.
+  static fn entries(folder: string) -> table<string>
+    local probe = Io.open(folder, IoMode.Read)
+    if probe == nil then
+      return {}
+    end
+    probe!.close()
+    return Os.list(folder)
+  end
+
   -- What everything under `path` takes up, in bytes: links not followed,
   -- and the counting stopped at `countLimit` entries.
   static fn size(path: string) -> integer
@@ -562,7 +638,7 @@ export class Storage
     local pending: table<string> = {path}
     while #pending > 0 and count < Storage.countLimit do
       local folder = Table.remove(pending) ?? ""
-      for name in Os.list(folder) do
+      for name in Storage.entries(folder) do
         count += 1
         local child = folder .. "/" .. name
         local entry = Os.fsInfo(child)
