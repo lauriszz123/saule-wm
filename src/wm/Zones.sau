@@ -1,0 +1,116 @@
+-- The world's time zones, to choose one from: every zone the system's
+-- time zone database lists (`zone1970.tab`), named by its city.
+--
+--   LT	+5441+02519	Europe/Vilnius
+--   US	+404251-0740023	America/New_York	Eastern (most areas)
+--
+-- A zone is called after the largest city in it, so finding one is
+-- typing a city: "vil" finds Vilnius. Not every city is a zone's name;
+-- the nearest large one in the same country nearly always is.
+
+export class Zone
+  -- What the system calls it: "America/New_York".
+  id: string
+  -- Its city, as a person reads it: "New York".
+  city: string
+  -- The part of the world it is filed under: "America".
+  region: string
+
+  fn init(id: string)
+    self.id = id
+    local parts = String.split(id, "/")
+    self.region = parts[1]
+    self.city = String.replace(parts[#parts], "_", " ")
+    if #parts == 1 then
+      self.region = ""
+    end
+  end
+end
+
+export class Zones
+  -- Where the list is, first found first.
+  static files: table<string> = {
+    "/usr/share/zoneinfo/zone1970.tab",
+    "/usr/share/zoneinfo/zone.tab",
+  }
+
+  static local known: table<Zone>? = nil
+
+  -- Every zone, by city. UTC first: it is the one in use until another
+  -- is chosen.
+  static fn all() -> table<Zone>
+    if Zones.known != nil then
+      return Zones.known!
+    end
+
+    local zones: table<Zone> = {}
+    for path in Zones.files do
+      if #zones == 0 then
+        Zones.readInto(zones, path)
+      end
+    end
+    Table.sort(zones, fn(a: Zone, b: Zone) -> boolean
+      return a.city < b.city
+    end)
+    Table.insert(zones, Zone("UTC"), 1)
+
+    Zones.known = zones
+    return zones
+  end
+
+  static local fn readInto(zones: table<Zone>, path: string) -> nil
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+
+    for line in String.split(text, "\n") do
+      local columns = String.split(line, "\t")
+      if #columns >= 3 and not String.starts(line, "#") then
+        Table.insert(zones, Zone(columns[3]))
+      end
+    end
+  end
+
+  -- The zones whose city or region holds `query`, ignoring case: those
+  -- whose city starts with it first. At most `limit` of them.
+  static fn matching(query: string, limit: integer) -> table<Zone>
+    local wanted = String.lower(String.trim(query))
+    local starts: table<Zone> = {}
+    local holds: table<Zone> = {}
+
+    for zone in Zones.all() do
+      local city = String.lower(zone.city)
+      if String.starts(city, wanted) then
+        Table.insert(starts, zone)
+      elseif String.contains(String.lower(zone.id), wanted) then
+        Table.insert(holds, zone)
+      end
+    end
+
+    local found: table<Zone> = {}
+    for zone in starts do
+      if #found < limit then
+        Table.insert(found, zone)
+      end
+    end
+    for zone in holds do
+      if #found < limit then
+        Table.insert(found, zone)
+      end
+    end
+    return found
+  end
+
+  -- The zone called `id`, or UTC.
+  static fn find(id: string) -> Zone
+    for zone in Zones.all() do
+      if zone.id == id then
+        return zone
+      end
+    end
+    return Zone("UTC")
+  end
+end

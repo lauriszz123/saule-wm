@@ -1,0 +1,36 @@
+-- One accent to pick in the first-start setup: a dot of its colour,
+-- ringed when it is the one in use. It fills the square it is given.
+
+import shine
+from uikit import *
+from Palette import Palette
+
+export class SetupSwatch extends View
+  colour: Color
+  chosen: boolean
+
+  fn init(colour: Color, chosen: boolean, key: string? = nil)
+    self.super(key)
+    self.colour = colour
+    self.chosen = chosen
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local s = Math.min(el.size.width, el.size.height)
+    local cx = x + el.size.width / 2.0
+    local cy = y + el.size.height / 2.0
+
+    self.colour.apply()
+    Graphics.circle("fill", cx, cy, s * 0.36)
+
+    if self.chosen then
+      Palette.text.apply()
+      Graphics.setLineWidth(1.5)
+      Graphics.circle("line", cx, cy, s * 0.48)
+    end
+  end
+end

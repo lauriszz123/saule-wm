@@ -1,0 +1,81 @@
+-- One wallpaper to pick in the first-start setup: a small picture of it,
+-- drawn by the same code as the real one (wmapi's `WallpaperArt`), with
+-- rounded corners, and ringed in the accent when it is the one in use.
+--
+-- Each picture is drawn into an image once and kept, by name and size.
+-- Only the plain gradients are offered here, which cost nothing to draw:
+-- the pictures and photographs are in Settings.
+
+import shine
+from uikit import *
+from "wmapi" import Preset, WallpaperArt
+from Palette import Palette
+
+export class SetupTile extends View
+  preset: Preset
+  chosen: boolean
+
+  -- The pictures drawn so far, by name and size.
+  static local drawn: table<string, Canvas> = {}
+
+  static radius: float = 7.0
+
+  fn init(preset: Preset, chosen: boolean, key: string? = nil)
+    self.super(key)
+    self.preset = preset
+    self.chosen = chosen
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local w = el.size.width
+    local h = el.size.height
+    local r = SetupTile.radius
+
+    Graphics.setColor(1.0, 1.0, 1.0)
+    Graphics.drawRounded(
+      SetupTile.picture(self.preset, w as integer, h as integer),
+      x,
+      y,
+      r
+    )
+
+    -- A hairline round it, so a dark one stands off the card.
+    Graphics.setColor(1.0, 1.0, 1.0, 0.16)
+    Graphics.setLineWidth(1.0)
+    Graphics.rectangle("line", x + 0.5, y + 0.5, w - 1.0, h - 1.0, r)
+
+    if self.chosen then
+      Palette.accent.apply()
+      Graphics.setLineWidth(2.5)
+      Graphics.rectangle("line", x - 3.0, y - 3.0, w + 6.0, h + 6.0, r + 3.0)
+    end
+  end
+
+  -- The picture of `preset`, `w` × `h`: the one drawn before, or drawn
+  -- now.
+  static fn picture(preset: Preset, w: integer, h: integer) -> Canvas
+    local key = preset.name .. ":" .. tostring(w) .. "x" .. tostring(h)
+    local kept = SetupTile.drawn[key]
+    if kept != nil then
+      return kept!
+    end
+
+    local image = Graphics.newCanvas(w, h)
+    local screen = Graphics.getCanvas()
+    local sx, sy, sw, sh = Graphics.getScissor()
+    Graphics.push("all")
+    Graphics.setCanvas(image)
+    Graphics.origin()
+    Graphics.setScissor()
+    WallpaperArt.paint(preset.name, 0.0, 0.0, w as float, h as float, 0.0)
+    Graphics.pop()
+    Graphics.setCanvas(screen)
+    Graphics.setScissor(sx, sy, sw, sh)
+    SetupTile.drawn[key] = image
+    return image
+  end
+end

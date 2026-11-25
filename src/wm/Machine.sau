@@ -1,0 +1,201 @@
+-- What the person chose for the computer itself: its name and its time
+-- zone, and whether the first-start setup has been through.
+--
+-- On Saule Linux these are small files on the data disk, in
+-- `$SAULE_DATA/system`, which init reads and acts on as they change
+-- (saule-linux's `init/src/system.rs`): naming the computer and setting
+-- its clock take root, and the window manager has none. Anywhere else
+-- they are kept beside the settings and nothing acts on them.
+--
+--   hostname   the computer's name
+--   timezone   the zone it is in: `Europe/Vilnius`
+--   setup      `done` once the first-start setup has been through
+--
+-- The time: Saule's `Os.date` is UTC. Init writes what the chosen zone
+-- means right now to `/run/saule/time` — the zone, how many seconds ahead
+-- of UTC it is, when that next changes and to what — and `now` adds it.
+
+export class Machine
+  -- Where init says what the time zone is at present.
+  static timeFile: string = "/run/saule/time"
+
+  -- How often that is read again, in seconds: often enough that a zone
+  -- just chosen shows at once, seldom enough to cost nothing.
+  static readEvery: float = 0.5
+
+  static local readAt: float = -1.0
+  static local ahead: integer = 0
+  static local changesAt: integer = 0
+  static local aheadAfter: integer = 0
+
+  -- Whether this is Saule Linux with a disk to keep things on: only then
+  -- is there a computer to set up.
+  static fn kept() -> boolean
+    return Os.getenv("SAULE_DATA") != nil
+  end
+
+  static fn folder() -> string
+    local data = Os.getenv("SAULE_DATA")
+    if data != nil then
+      return data! .. "/system"
+    end
+    local home = Os.getenv("HOME") ?? ""
+    local config = Os.getenv("XDG_CONFIG_HOME") ?? (home .. "/.config")
+    return config .. "/saule/system"
+  end
+
+  -- The first line of the file called `name`, or "" when there is none.
+  static fn read(name: string) -> string
+    local file = Io.open(Machine.folder() .. "/" .. name, IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local line = file!.read("l") ?? ""
+    file!.close()
+    return String.trim(line)
+  end
+
+  -- Keep `value` as the file called `name`: written beside and renamed
+  -- over, so that init never reads half of it.
+  static fn write(name: string, value: string) -> nil
+    local folder = Machine.folder()
+    Os.mkdir(folder, true)
+    local path = folder .. "/" .. name
+    local file = Io.open(path .. ".part", IoMode.Write)
+    if file == nil then
+      return
+    end
+    file!.write(value .. "\n")
+    file!.close()
+    Os.rename(path .. ".part", path)
+  end
+
+  -- Whether the first-start setup should be shown: on a Saule Linux that
+  -- keeps things and hasn't been through it. `SAULE_WM_SETUP=1` shows it
+  -- anywhere, for working on it.
+  static fn needsSetup() -> boolean
+    if Os.getenv("SAULE_WM_SETUP") == "1" then
+      return true
+    end
+    return Machine.kept() and Machine.read("setup") != "done"
+  end
+
+  static fn setUp() -> nil
+    Machine.write("setup", "done")
+  end
+
+  -- The computer's name as chosen, or what the system calls itself.
+  static fn name() -> string
+    local chosen = Machine.read("hostname")
+    if chosen != "" then
+      return chosen
+    end
+    local file = Io.open("/proc/sys/kernel/hostname", IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local line = file!.read("l") ?? ""
+    file!.close()
+    return String.trim(line)
+  end
+
+  -- `typed` as a computer's name: letters, digits and hyphens, with
+  -- anything else typed turned into a hyphen. What init makes of it too.
+  static fn nameFrom(typed: string) -> string
+    local out = ""
+    local text = String.trim(typed)
+    for i = 1, String.len(text) do
+      local code = String.byte(text, i)!
+      local letter = (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+      local digit = code >= 48 and code <= 57
+      if letter or digit then
+        out = out .. String.sub(text, i, i)
+      elseif out != "" and not String.ends(out, "-") then
+        out = out .. "-"
+      end
+    end
+    while String.ends(out, "-") do
+      out = String.sub(out, 1, String.len(out) - 1)
+    end
+    return String.sub(out, 1, 63)
+  end
+
+  static fn setName(name: string) -> nil
+    Machine.write("hostname", name)
+  end
+
+  -- The time zone chosen, or "UTC".
+  static fn zone() -> string
+    local chosen = Machine.read("timezone")
+    if chosen == "" then
+      return "UTC"
+    end
+    return chosen
+  end
+
+  static fn setZone(zone: string) -> nil
+    Machine.write("timezone", zone)
+    -- Init answers within a moment: look again at once, not in half a
+    -- second.
+    Machine.readAt = -1.0
+  end
+
+  -- Now, as `Os.date` should be given it to show the time where the
+  -- computer is: Unix seconds, moved by the zone's distance from UTC.
+  static fn now() -> integer
+    return Os.time() + Machine.offset()
+  end
+
+  -- How many seconds ahead of UTC the computer's zone is at present.
+  static fn offset() -> integer
+    local clock = Os.clock()
+    if Machine.readAt < 0.0 or clock - Machine.readAt >= Machine.readEvery then
+      Machine.readAt = clock
+      Machine.readTime()
+    end
+    -- Past the change init foretold, before it has written again.
+    if Machine.changesAt > 0 and Os.time() >= Machine.changesAt then
+      return Machine.aheadAfter
+    end
+    return Machine.ahead
+  end
+
+  -- "zone seconds changesAt secondsAfter", as init writes it. A file
+  -- that isn't there (no init: not Saule Linux) leaves the time UTC.
+  static local fn readTime() -> nil
+    local file = Io.open(Machine.timeFile, IoMode.Read)
+    if file == nil then
+      return
+    end
+    local words = String.split(String.trim(file!.read("l") ?? ""), " ")
+    file!.close()
+    if #words < 4 then
+      return
+    end
+    Machine.ahead = Machine.whole(words[2])
+    Machine.changesAt = Machine.whole(words[3])
+    Machine.aheadAfter = Machine.whole(words[4])
+  end
+
+  -- `text` as a whole number, signed; 0 when it isn't one.
+  static fn whole(text: string) -> integer
+    local digits = text
+    local sign = 1
+    if String.starts(digits, "-") then
+      sign = -1
+      digits = String.sub(digits, 2)
+    end
+    if digits == "" then
+      return 0
+    end
+    local value = 0
+    for i = 1, String.len(digits) do
+      local code = String.byte(digits, i)!
+      if code < 48 or code > 57 then
+        return 0
+      end
+      value = value * 10 + (code - 48)
+    end
+    return sign * value
+  end
+end

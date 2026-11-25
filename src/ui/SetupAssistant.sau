@@ -1,0 +1,401 @@
+-- The first-start setup, as a Mac's Setup Assistant: over everything the
+-- first time the computer starts, a card of frosted glass in the middle
+-- of the blurred screen, one thing to choose a page.
+--
+--                    ( ☀ )
+--             Name this computer
+--     It is how the computer is known …
+--
+--        ┌──────────────────────────┐
+--        │ netbook                  │
+--        └──────────────────────────┘
+--
+--       [   Back   ]   [ Continue ]
+--                · ● · · ·
+--
+-- What is chosen takes effect as it is chosen: the clock in the bar moves
+-- to the time zone, the wallpaper behind changes. `Setup` (in `wm`) keeps
+-- what page it is on; Enter goes on and Escape back (`Desktop.setupKey`).
+
+from uikit import *
+from "wmapi" import Preset, Presets
+from wm import Machine, Session, Setup, Zone, Zones
+from Palette import Palette
+from SunLogo import SunLogo
+from Clock import Clock
+from ConfirmDialog import ConfirmDialog
+from SetupSwatch import SetupSwatch
+from SetupTile import SetupTile
+
+export class SetupAssistant extends View
+  session: Session
+
+  static width: float = 440.0
+
+  -- How many cities the search lists at once, and wallpapers are offered.
+  static zoneRows: integer = 5
+  static wallpapers: integer = 8
+
+  -- A field's and a list row's own glass, a little lighter than the card.
+  static field: Color = Color(1.0, 1.0, 1.0, 0.10)
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  -- It has a tick to run: the time it shows moves on, and moves at once
+  -- when a time zone is chosen.
+  fn ticks() -> boolean
+    return true
+  end
+
+  fn tick(el: Element, dt: float) -> nil
+    local now = Clock.time()
+    if now != (el.data.scratch.time as string?) then
+      el.data.scratch.time = now
+      el.markNeedsBuild()
+    end
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local setup = session.setup
+
+    local page: table<View> = {}
+    match setup.page
+      case 2 then
+        page = SetupAssistant.naming(session)
+      case 3 then
+        page = SetupAssistant.placing(session)
+      case 4 then
+        page = SetupAssistant.look(session)
+      case 5 then
+        page = SetupAssistant.done(session)
+      case _ then
+        page = SetupAssistant.welcome()
+    end
+
+    local items: table<View> = {}
+    for view in page do
+      Table.insert(items, view)
+    end
+    Table.insert(items, Spacer().frame(height: 10.0))
+    Table.insert(items, SetupAssistant.buttons(session))
+    Table.insert(items, Spacer().frame(height: 6.0))
+    Table.insert(items, SetupAssistant.dots(setup.page).centered())
+
+    local column = VStack(
+      alignment: StackAlignment.Fill,
+      sizing: StackSize.Fit,
+      spacing: 6.0,
+      children: items
+    )
+    local inset = EdgeInsets.only(
+      left: 24.0,
+      top: 26.0,
+      right: 24.0,
+      bottom: 16.0
+    )
+    local glass = Backdrop(
+      child: column.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: Palette.confirmRadius
+    )
+    local card = glass.background(
+      nil,
+      Palette.confirmRadius,
+      border: Palette.launcherOutline
+    )
+
+    -- The rest of the screen is blurred a little and dimmed, and takes
+    -- every press: nothing behind is used until the setup is through.
+    local nothing = fn()
+    end
+    local held = GestureArea(
+      child: card.frame(width: SetupAssistant.width),
+      onTap: nothing
+    )
+    local screen = Backdrop(
+      child: held.centered(),
+      blur: Palette.confirmScreenBlur,
+      tint: Palette.confirmScreenTint
+    )
+    return GestureArea(child: screen, onTap: nothing)
+  end
+
+  -- A page's head: the sun, a title, and a few words under it.
+  static fn head(title: string, words: string) -> table<View>
+    local heading = Text(title).font(18.0).foregroundStyle(Palette.text)
+    local text = Text(words).font(12.0).foregroundStyle(Palette.dimText)
+    local said = text.multilineTextAlignment(TextAlign.Center).lineLimit(3)
+    local logo = SunLogo(Palette.text).frame(width: 46.0, height: 46.0)
+    return {
+      logo.centered(),
+      Spacer().frame(height: 4.0),
+      heading.centered(),
+      said.centered(),
+      Spacer().frame(height: 8.0),
+    }
+  end
+
+  static fn welcome() -> table<View>
+    return SetupAssistant.head(
+      "Welcome to Saule Linux",
+      "A name for this computer, where it is, and how it looks: three things to choose, and it is ready."
+    )
+  end
+
+  -- The computer's name: typed as a person would, kept as a name a
+  -- network can carry, which is shown when the two differ.
+  static fn naming(session: Session) -> table<View>
+    local setup = session.setup
+    local kept = Machine.nameFrom(setup.name)
+
+    local field = SetupAssistant.typed(setup.name, "Name", fn(text: string)
+      setup.name = text
+      session.refresh()
+    end, fn(text: string)
+      session.setupNext()
+    end)
+
+    local note = " "
+    if kept == "" and String.trim(setup.name) != "" then
+      note = "A name needs a letter or a digit in it."
+    elseif kept != String.trim(setup.name) and kept != "" then
+      note = "It will be known as " .. kept .. "."
+    end
+    local noted = Text(note).font(11.0).foregroundStyle(Palette.dimText)
+
+    local page = SetupAssistant.head(
+      "Name this computer",
+      "It is how the computer is known to others. Letters, digits and hyphens."
+    )
+    Table.insert(page, field)
+    Table.insert(page, noted.centered())
+    return page
+  end
+
+  -- The time zone: a search for a city, the cities that match, and the
+  -- time it is in the one chosen.
+  static fn placing(session: Session) -> table<View>
+    local setup = session.setup
+    local matches = Zones.matching(setup.query, SetupAssistant.zoneRows)
+
+    local field = SetupAssistant.typed(
+      setup.query,
+      "Search for a city",
+      fn(text: string)
+        setup.query = text
+        session.refresh()
+      end,
+      fn(text: string)
+        -- Enter takes the first city found, and with nothing new to take
+        -- goes on.
+        local first = matches[1]
+        if String.trim(text) != "" and first != nil and first!.id != setup.zone then
+          setup.place(first!.id)
+          session.refresh()
+        else
+          session.setupNext()
+        end
+      end
+    )
+
+    local rows: table<View> = {}
+    for zone in matches do
+      local choose = fn()
+        setup.place(zone.id)
+        session.refresh()
+      end
+      Table.insert(
+        rows,
+        SetupAssistant.zoneRow(zone, zone.id == setup.zone, choose)
+      )
+    end
+    if #rows == 0 then
+      local none = Text("No city by that name. Try the largest one nearby.")
+      Table.insert(
+        rows,
+        none.font(12.0).foregroundStyle(Palette.dimText).centered()
+      )
+    end
+    local fill = StackAlignment.Fill
+    local list = VStack(alignment: fill, spacing: 2.0, children: rows)
+
+    local chosen = Zones.find(setup.zone)
+    local time = "It is " .. Clock.time() .. " in " .. chosen.city .. "."
+    local told = Text(time).font(12.0).foregroundStyle(Palette.text)
+
+    local page = SetupAssistant.head(
+      "Where is this computer?",
+      "The clock goes by the time zone. A zone is named after its largest city."
+    )
+    Table.insert(page, field)
+    Table.insert(page, list.frame(height: 150.0))
+    Table.insert(page, told.centered())
+    return page
+  end
+
+  -- One city in the list: its name, and the part of the world it is in.
+  static fn zoneRow(zone: Zone, chosen: boolean, choose: Action) -> View
+    local fill: Color? = nil
+    if chosen then
+      fill = Palette.accent.withAlpha(0.45)
+    end
+    local city = Text(zone.city).font(13.0).foregroundStyle(Palette.text)
+    local region = Text(zone.region).font(12.0).foregroundStyle(Palette.dimText)
+    local row = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+      show(city)
+      Spacer()
+      show(region)
+    end
+    local inset = EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0)
+    return GestureArea(
+      child: row.padding(insets: inset).background(fill, 6.0),
+      onTap: choose
+    )
+  end
+
+  -- The look: the accent as a row of dots, the wallpaper as small
+  -- pictures. Each is put on as it is clicked.
+  static fn look(session: Session) -> table<View>
+    local dots: table<View> = {Spacer()}
+    for preset in Presets.accents do
+      local choose = fn()
+        Palette.useAccent(preset.name)
+        session.lookChosen()
+      end
+      local swatch = SetupSwatch(
+        Palette.colour(preset.colours[1]),
+        preset.name == Palette.accentName
+      )
+      Table.insert(
+        dots,
+        GestureArea(
+          child: swatch.frame(width: 30.0, height: 30.0),
+          onTap: choose
+        )
+      )
+    end
+    Table.insert(dots, Spacer())
+    local center = StackAlignment.Center
+    local accents = HStack(alignment: center, spacing: 8.0, children: dots)
+
+    local page = SetupAssistant.head(
+      "Make it yours",
+      "A colour for what is lit, and a picture behind everything. Settings has more of both."
+    )
+    Table.insert(page, accents)
+    Table.insert(page, Spacer().frame(height: 6.0))
+    Table.insert(page, SetupAssistant.tiles(session, 1))
+    Table.insert(page, Spacer().frame(height: 4.0))
+    Table.insert(page, SetupAssistant.tiles(session, 5))
+    return page
+  end
+
+  -- Four wallpapers side by side, from the one at `first` in the list.
+  static fn tiles(session: Session, first: integer) -> View
+    local row: table<View> = {}
+    local last = Math.min(first + 3, SetupAssistant.wallpapers)
+    for i = first, Math.min(last, #Presets.wallpapers) do
+      local preset: Preset = Presets.wallpapers[i]
+      local choose = fn()
+        Palette.useWallpaper(preset.name)
+        session.lookChosen()
+      end
+      local tile = SetupTile(preset, preset.name == Palette.wallpaperName)
+      Table.insert(row, GestureArea(child: tile, onTap: choose).expanded())
+    end
+    local fill = StackAlignment.Fill
+    local tiles = HStack(alignment: fill, spacing: 10.0, children: row)
+    return tiles.frame(height: 54.0)
+  end
+
+  static fn done(session: Session) -> table<View>
+    local name = Machine.name()
+    local zone = Zones.find(session.setup.zone)
+    return SetupAssistant.head(
+      name .. " is ready",
+      "It is " .. Clock.time() .. " in " .. zone.city .. ". Super + Space opens the launcher, and the sun in the corner has the rest."
+    )
+  end
+
+  -- A field to type in: lit round its edge in the accent while it has
+  -- the keyboard, which it takes as its page comes.
+  static fn typed(
+    value: string,
+    placeholder: string,
+    changed: ValueChanged<string>,
+    submitted: ValueChanged<string>
+  ) -> View
+    return TextField(
+      value: value,
+      placeholder: placeholder,
+      style: TextStyle(Palette.text, 15.0),
+      placeholderStyle: TextStyle(Palette.dimText, 15.0),
+      background: SetupAssistant.field,
+      border: Palette.clear,
+      focusBorder: Palette.accent,
+      padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+      radius: 8.0,
+      autofocus: true,
+      onChanged: changed,
+      onSubmitted: submitted,
+      key: placeholder
+    )
+  end
+
+  -- Back and the way on, sharing the card's width as a question's two
+  -- buttons do; the first page has nowhere to go back to.
+  static fn buttons(session: Session) -> View
+    local setup = session.setup
+    local back = fn()
+      session.setupBack()
+    end
+    local onward = fn()
+      session.setupNext()
+    end
+
+    local title = "Continue"
+    if setup.page == Setup.done then
+      title = "Start Using Saule Linux"
+    end
+    local fill = Palette.accent
+    if not setup.ready() then
+      fill = Palette.confirmCancel
+    end
+
+    local row: table<View> = {}
+    if setup.page > 1 then
+      local quiet = Palette.confirmCancel
+      Table.insert(row, ConfirmDialog.button("Back", quiet, back).expanded())
+    end
+    Table.insert(row, ConfirmDialog.button(title, fill, onward).expanded(2))
+    local stretch = StackAlignment.Fill
+    local buttons = HStack(alignment: stretch, spacing: 10.0, children: row)
+    return buttons.frame(height: Palette.confirmButton)
+  end
+
+  -- Where in the setup this is: a dot a page, the present one lit.
+  static fn dots(page: integer) -> View
+    local row: table<View> = {}
+    for i = 1, Setup.pages do
+      local colour = Palette.confirmCancel
+      if i == page then
+        colour = Palette.text
+      end
+      Table.insert(
+        row,
+        Spacer().frame(width: 6.0, height: 6.0).background(colour, 3.0)
+      )
+    end
+    return HStack(
+      alignment: StackAlignment.Center,
+      sizing: StackSize.Fit,
+      spacing: 6.0,
+      children: row
+    )
+  end
+end

@@ -1,7 +1,8 @@
 -- The day and the time, the way a Mac's menu bar shows them: "Tue 4 Nov
--- 14:05". Kept current.
+-- 14:05". Kept current, and in the computer's time zone (`Machine.now`).
 
 from uikit import BuildContext, Element, Text, View
+from wm import Machine
 from Palette import Palette
 
 export class Clock extends View
@@ -57,17 +58,23 @@ export class Clock extends View
 
   -- "Tue 4 Nov  14:05".
   static fn now() -> string
-    return Clock.today() .. "  " .. Os.date("%H:%M")
+    return Clock.today() .. "  " .. Clock.time()
+  end
+
+  -- "14:05".
+  static fn time() -> string
+    return Os.date("%H:%M", Machine.now())
   end
 
   -- "Tue 4 Nov": the date alone, as the lock screen shows it under the
   -- time.
   static fn today() -> string
-    local day = Clock.days[Os.date("%w")] ?? ""
-    local month = Clock.months[Os.date("%m")] ?? ""
+    local now = Machine.now()
+    local day = Clock.days[Os.date("%w", now)] ?? ""
+    local month = Clock.months[Os.date("%m", now)] ?? ""
 
     -- The day of the month without a leading zero: "4", not "04".
-    local date = Os.date("%d")
+    local date = Os.date("%d", now)
     if String.sub(date, 1, 1) == "0" then
       date = String.sub(date, 2)
     end

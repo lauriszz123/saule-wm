@@ -37,11 +37,17 @@ export class SettingsService implements WmSettings
     -- when About or Settings first asks; and each frame, save settings that
     -- have settled and take in what `df` has said.
     Storage.ask()
+    local service = SettingsService(session)
     Table.insert(session.chores, fn()
+      -- A look chosen in the first-start setup is a setting like any
+      -- other: saved, so it is there after a restart.
+      if session.lookChanged then
+        session.lookChanged = false
+        Preferences.saveSoon(service.options())
+      end
       Preferences.frame()
       Storage.collect()
     end)
-    local service = SettingsService(session)
     local saved = Preferences.load()
     if saved != nil then
       service.use(saved!)

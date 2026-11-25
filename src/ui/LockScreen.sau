@@ -24,7 +24,7 @@ export class LockScreen extends View
   end
 
   fn tick(el: Element, dt: float) -> nil
-    local now = Os.date("%H:%M")
+    local now = Clock.time()
     if now != (el.data.scratch.time as string?) then
       el.data.scratch.time = now
       el.markNeedsBuild()
@@ -33,7 +33,7 @@ export class LockScreen extends View
 
   fn body(context: BuildContext) -> View
     local session = self.session
-    local time = Text(Os.date("%H:%M")).font(72.0).foregroundStyle(Palette.text)
+    local time = Text(Clock.time()).font(72.0).foregroundStyle(Palette.text)
     local date = Text(Clock.today()).font(16.0).foregroundStyle(Palette.dimText)
     local hint = Text("Click or press Enter to unlock").font(12.0)
 

@@ -1,0 +1,81 @@
+-- The first-start setup, as far as it has got: which page it is on, and
+-- what has been typed and chosen. The views in `ui` show it; nothing here
+-- draws.
+--
+--   1  welcome
+--   2  the computer's name
+--   3  its time zone
+--   4  how it looks: the accent and the wallpaper
+--   5  done
+--
+-- A choice is kept as it is made (`Machine`), not at the end: a computer
+-- turned off halfway keeps what was chosen so far, and is asked the rest
+-- the next time.
+
+from Machine import Machine
+
+export class Setup
+  static pages: integer = 5
+
+  static welcome: integer = 1
+  static naming: integer = 2
+  static placing: integer = 3
+  static look: integer = 4
+  static done: integer = 5
+
+  page: integer
+
+  -- The computer's name as typed, and the search for a city as typed.
+  name: string
+  query: string
+
+  -- The time zone chosen: what the system calls it.
+  zone: string
+
+  fn init()
+    self.page = Setup.welcome
+    self.name = Machine.name()
+    self.query = ""
+    self.zone = Machine.zone()
+  end
+
+  -- Whether the page has a field with the keyboard in it: Enter is then
+  -- the field's to act on.
+  fn typing() -> boolean
+    return self.page == Setup.naming or self.page == Setup.placing
+  end
+
+  -- Whether the page may be left for the next: a computer needs a name.
+  fn ready() -> boolean
+    return self.page != Setup.naming or Machine.nameFrom(self.name) != ""
+  end
+
+  -- On to the next page, keeping what this one chose. True when that was
+  -- the last: the setup is through.
+  fn next() -> boolean
+    if not self.ready() then
+      return false
+    end
+    if self.page == Setup.naming then
+      Machine.setName(Machine.nameFrom(self.name))
+    end
+    if self.page >= Setup.pages then
+      return true
+    end
+    self.page += 1
+    return false
+  end
+
+  fn back() -> nil
+    if self.page > 1 then
+      self.page -= 1
+    end
+  end
+
+  -- The computer is in `zone` from now: init is told, and the clock
+  -- follows.
+  fn place(zone: string) -> nil
+    self.zone = zone
+    Machine.setZone(zone)
+  end
+end

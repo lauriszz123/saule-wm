@@ -119,6 +119,11 @@ export class Desktop extends View
       return true
     end
 
+    -- The first-start setup has it before anything else is in use.
+    if session.settingUp then
+      return Desktop.setupKey(session, e)
+    end
+
     -- The lock screen, a question or the system menu has the keyboard.
     if session.locked or session.confirming != "" or session.menuOpen then
       return Desktop.overlayKey(session, e)
@@ -230,6 +235,38 @@ export class Desktop extends View
       session.closeMenu()
     end
     return true
+  end
+
+  -- A key while the first-start setup is up. None is a shortcut: nothing
+  -- else is in use yet.
+  --
+  --   Enter     the next page, where no field has the keyboard (a field
+  --             acts on Enter itself)
+  --   Escape    the page before
+  --
+  -- Every other key is left to the field being typed in.
+  static fn setupKey(session: Session, e: KeyEvent) -> boolean
+    if e.key == "return" and not session.setup.typing() then
+      session.setupNext()
+      return true
+    end
+    if e.key == "escape" then
+      session.setupBack()
+      return true
+    end
+    return false
+  end
+
+  -- The first-start setup: there when the window manager starts, and
+  -- fading away over the desktop when it has been through.
+  static fn setup(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.settingUp
+    end
+    local content = fn() -> View
+      return SetupAssistant(session)
+    end
+    return Transition(shown, content, 0.30, 1.0)
   end
 
   -- The launcher, settling in as Spotlight does: fading in and growing
