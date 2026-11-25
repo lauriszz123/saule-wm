@@ -11,6 +11,9 @@ from SessionEnd import SessionEnd
 from Split import Split
 from Workspace import Workspace
 from Keymap import Keymap
+from Machine import Machine
+from Setup import Setup
+from System import System
 
 export class Session
   -- How many workspaces there are.
@@ -50,6 +53,20 @@ export class Session
   -- The screen is locked: the lock screen over everything until it is
   -- unlocked.
   locked: boolean
+
+  -- The first-start setup is up, over everything, until it has been
+  -- through (see `Machine.needsSetup`), and how far it has got.
+  settingUp: boolean
+  setup: Setup
+
+  -- The accent or the wallpaper was changed here rather than by Settings
+  -- (the setup chose one): the settings service saves them and clears
+  -- this.
+  lookChanged: boolean
+
+  -- The panel open under the bar's right end: "sound", "network" or
+  -- "battery", or "" for none.
+  panel: string
 
   -- The window Settings is recording a shortcut in, by id, or 0: every key
   -- goes to it, the window manager's own too (see `recordingKeys`).
@@ -91,6 +108,10 @@ export class Session
     self.launching = false
     self.menuOpen = false
     self.locked = false
+    self.settingUp = Machine.needsSetup()
+    self.setup = Setup()
+    self.lookChanged = false
+    self.panel = ""
     self.recordingFor = 0
     self.confirming = ""
     self.exitCode = 0
@@ -219,16 +240,67 @@ export class Session
   end
 
   -- Whether the window manager has the keyboard rather than an app: the
-  -- launcher, the system menu, a question or the lock screen is up.
+  -- launcher, the system menu, a question, the lock screen or the
+  -- first-start setup is up.
   fn ownsKeyboard() -> boolean
     local asking = self.confirming != ""
-    return self.launching or self.menuOpen or self.locked or asking
+    local over = self.locked or self.settingUp or self.panel != ""
+    return self.launching or self.menuOpen or over or asking
+  end
+
+  -- The setup's next page; after its last, it has been through and
+  -- isn't shown again.
+  fn setupNext() -> nil
+    if self.setup.next() then
+      Machine.setUp()
+      self.settingUp = false
+      Session.log.info("set up", {name: Machine.name(), zone: Machine.zone()})
+    end
+    self.sync()
+  end
+
+  fn setupBack() -> nil
+    self.setup.back()
+    self.sync()
+  end
+
+  -- The accent or the wallpaper was chosen here: show it, and have it
+  -- saved.
+  fn lookChosen() -> nil
+    self.lookChanged = true
+    self.sync()
   end
 
   -- Open the system menu, or close it when it is open.
   fn toggleMenu() -> nil
     self.menuOpen = not self.menuOpen
+    self.panel = ""
     self.sync()
+  end
+
+  -- Open the panel called `name` under the bar, or close it when it is
+  -- the one open. One thing hangs from the bar at a time.
+  fn togglePanel(name: string) -> nil
+    if self.panel == name then
+      self.panel = ""
+    else
+      self.panel = name
+    end
+    self.menuOpen = false
+    self.launching = false
+    self.sync()
+  end
+
+  fn closePanel() -> nil
+    self.panel = ""
+    self.sync()
+  end
+
+  -- Put the computer to sleep. It wakes locked: the lock screen goes up
+  -- as it is asked, so that is what is on the screen when it stops.
+  fn sleep() -> nil
+    self.lock()
+    System.sleep()
   end
 
   fn closeMenu() -> nil
@@ -263,6 +335,7 @@ export class Session
 
   fn lock() -> nil
     self.menuOpen = false
+    self.panel = ""
     self.launching = false
     self.resizing = false
     self.locked = true

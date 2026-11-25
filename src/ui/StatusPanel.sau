@@ -1,0 +1,326 @@
+-- The panel that hangs from the bar's right end, under the picture that
+-- was clicked: the sound's, the network's or the battery's, as a Mac's
+-- menu bar extras open. The same frosted glass as the system menu; a
+-- click anywhere else, or Escape, closes it.
+--
+--   Sound                         Wi-Fi                       [ on ]
+--   🔈 ─────●──────────           ✓ Home               ⌔
+--   [ ] Mute                        Neighbour        🔒 ⌔
+--                                   Café Wi-Fi           ⌔
+--                                 ─────────────────────────────
+--                                 Ethernet        Not plugged in
+--
+-- A network that wants a password it hasn't been given opens a field
+-- for it in place; Enter joins. Which network that is belongs to this
+-- view, not the session: closing the panel forgets it.
+
+from uikit import *
+from wm import SeenNetwork, Session, System
+from Palette import Palette
+from StatusGlyph import StatusGlyph
+from StatusItems import StatusItems
+from SystemMenu import SystemMenu
+
+export class StatusPanel extends View
+  session: Session
+
+  static width: float = 290.0
+
+  -- The most networks listed at once.
+  static networks: integer = 7
+
+  -- What was asked last: as the panel fades away it is closed already,
+  -- and should still show what it showed.
+  static local last: string = "sound"
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local asked = session.panel
+    if asked == "" then
+      asked = StatusPanel.last
+    end
+    StatusPanel.last = asked
+
+    -- The network being given a password: its name, or "".
+    local picked = context.state("picked", "")
+
+    local rows: table<View> = {}
+    match asked
+      case "network" then
+        rows = StatusPanel.network(session, picked)
+      case "battery" then
+        rows = StatusPanel.battery()
+      case _ then
+        rows = StatusPanel.sound(session)
+    end
+
+    local fill = StackAlignment.Fill
+    local list = VStack(
+      alignment: fill,
+      sizing: StackSize.Fit,
+      spacing: 4.0,
+      children: rows
+    )
+    local inset = EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0)
+    local glass = Backdrop(
+      child: list.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 10.0
+    )
+    local card = glass.background(nil, 10.0, border: Palette.launcherOutline)
+    local themed = Theme(data: StatusPanel.theme(), child: card)
+
+    -- A press on the panel's own background is the panel's, and does
+    -- nothing; anywhere else closes it.
+    local nothing = fn()
+    end
+    local sized = themed.frame(width: StatusPanel.width)
+    local held = GestureArea(child: sized, onTap: nothing)
+    local placed = VStack(alignment: StackAlignment.Trailing) do
+      held.padding(insets: EdgeInsets.only(right: 6.0))
+      Spacer()
+    end
+    local close = fn()
+      session.closePanel()
+    end
+    local below = GestureArea(child: placed, onTap: close)
+
+    -- The bar itself is left to the bar: clicking another of its
+    -- pictures goes straight to that one's panel.
+    return VStack(alignment: StackAlignment.Fill) do
+      Spacer().frame(height: Palette.barHeight)
+      below.expanded()
+    end
+  end
+
+  -- uikit's own controls (the slider, the switch) in the bar's colours.
+  static fn theme() -> ThemeData
+    return ThemeData(
+      background: Palette.launcher,
+      surface: Palette.confirmCancel,
+      border: Palette.launcherOutline,
+      text: Palette.text,
+      textMuted: Palette.dimText,
+      primary: Palette.accent,
+      body: TextStyle(Palette.text, 13.0)
+    )
+  end
+
+  static fn title(text: string) -> Text
+    return Text(text).font(13.0).foregroundStyle(Palette.text)
+  end
+
+  static fn note(text: string) -> Text
+    return Text(text).font(12.0).foregroundStyle(Palette.dimText)
+  end
+
+  -- Sound: a slider for how loud, and silence as a switch beside its name.
+  static fn sound(session: Session) -> table<View>
+    local kind, level = StatusItems.sound()
+    local louder = fn(next: float)
+      System.setVolume((next * 100.0 + 0.5) as integer)
+      session.refresh()
+    end
+    local slider = Slider(
+      value: (System.volume as float) / 100.0,
+      onChanged: louder
+    )
+    local dial = HStack(alignment: StackAlignment.Center, spacing: 10.0) do
+      StatusGlyph(kind, level, Palette.text).frame(width: 22.0, height: 18.0)
+      slider.expanded()
+    end
+
+    local silence = fn(next: boolean)
+      System.setMuted(next)
+      session.refresh()
+    end
+    local mute = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+      show(StatusPanel.note("Mute"))
+      Spacer()
+      Toggle(value: System.muted, onChanged: silence)
+    end
+
+    return {
+      StatusPanel.title("Sound"),
+      Spacer().frame(height: 2.0),
+      dial,
+      Spacer().frame(height: 2.0),
+      mute,
+    }
+  end
+
+  -- The battery: how full, and whether it is filling.
+  static fn battery() -> table<View>
+    local how = "On battery"
+    if System.charging and System.charge >= 100 then
+      how = "Full, and plugged in"
+    elseif System.charging then
+      how = "Charging"
+    end
+    local full = tostring(System.charge) .. "%"
+    local line = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+      show(StatusPanel.title("Battery"))
+      Spacer()
+      show(StatusPanel.note(full .. " · " .. how))
+    end
+    local rows: table<View> = {line}
+    return rows
+  end
+
+  -- The network: Wi-Fi with its switch and the networks in range, then
+  -- the cable.
+  static fn network(session: Session, picked: Binding) -> table<View>
+    local rows: table<View> = {}
+
+    if System.radio != "none" then
+      local switched = fn(next: boolean)
+        System.setRadio(next)
+        picked.set("")
+        session.refresh()
+      end
+      local head = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+        show(StatusPanel.title("Wi-Fi"))
+        Spacer()
+        Toggle(value: System.radio == "on", onChanged: switched)
+      end
+      Table.insert(rows, head)
+
+      if System.radio == "on" then
+        for row in StatusPanel.wifi(session, picked) do
+          Table.insert(rows, row)
+        end
+      end
+    end
+
+    if System.wired then
+      if #rows > 0 then
+        Table.insert(rows, SystemMenu.separator())
+      end
+      local how = "Not plugged in"
+      if System.wiredAddress != "" then
+        how = "Connected · " .. System.wiredAddress
+      elseif System.cable then
+        how = "Plugged in, no address yet"
+      end
+      local cable = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
+        show(StatusPanel.title("Ethernet"))
+        Spacer()
+        show(StatusPanel.note(how))
+      end
+      Table.insert(rows, cable)
+    end
+    return rows
+  end
+
+  -- What Wi-Fi is doing, in words, and the networks in range: the one
+  -- joined first.
+  static fn wifi(session: Session, picked: Binding) -> table<View>
+    local rows: table<View> = {}
+    local said = ""
+    if System.wifi == "joining" then
+      said = "Joining " .. System.wifiName .. "…"
+    elseif System.wifi == "failed" then
+      said = "Could not join " .. System.wifiName .. ". Is the password right?"
+    elseif System.wifi == "joined" and System.wifiAddress == "" then
+      said = "Joined " .. System.wifiName .. ", no address yet"
+    elseif #System.seen == 0 then
+      said = "Looking for networks…"
+    end
+    if said != "" then
+      Table.insert(rows, StatusPanel.note(said).lineLimit(2))
+    end
+
+    local listed = 0
+    for network in System.seen do
+      if listed < StatusPanel.networks then
+        listed += 1
+        Table.insert(rows, StatusPanel.networkRow(session, network, picked))
+        if picked.text() == network.name then
+          Table.insert(
+            rows,
+            StatusPanel.password(session, network.name, picked)
+          )
+        end
+      end
+    end
+    return rows
+  end
+
+  -- One network: a tick when it is the one joined, its name, a padlock
+  -- when it wants a password it hasn't got, and its strength. Clicking
+  -- joins it, or asks for its password first.
+  static fn networkRow(session: Session, network: SeenNetwork, picked: Binding) -> View
+    local joined = System.wifi == "joined" and System.wifiName == network.name
+    local asks = network.secured and not network.known
+
+    local choose = fn()
+      if joined then
+        return
+      end
+      if asks then
+        picked.set(network.name)
+      else
+        picked.set("")
+        System.join(network.name, "")
+        session.refresh()
+      end
+    end
+
+    local mark = " "
+    if joined then
+      mark = "✓"
+    end
+    local name = Text(network.name).font(13.0).foregroundStyle(Palette.text)
+    local row = HStack(alignment: StackAlignment.Center, spacing: 6.0) do
+      Text(mark).font(12.0).foregroundStyle(Palette.text).frame(width: 12.0)
+      name.lineLimit(1).expanded()
+      if asks then
+        StatusGlyph("lock", 0, Palette.dimText).frame(width: 12.0, height: 14.0)
+      end
+      StatusGlyph("wifi", StatusItems.bars(network.signal), Palette.text).frame(
+        width: 18.0,
+        height: 16.0
+      )
+    end
+
+    local fill: Color? = nil
+    if picked.text() == network.name then
+      fill = Palette.confirmCancel
+    end
+    local inset = EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0)
+    return GestureArea(
+      child: row.padding(insets: inset).background(fill, 6.0),
+      onTap: choose
+    )
+  end
+
+  -- The field for a network's password, under its row: Enter joins.
+  static fn password(session: Session, name: string, picked: Binding) -> View
+    return TextField(
+      placeholder: "Password",
+      style: TextStyle(Palette.text, 13.0),
+      placeholderStyle: TextStyle(Palette.dimText, 13.0),
+      background: Palette.confirmCancel,
+      border: Palette.clear,
+      focusBorder: Palette.accent,
+      padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+      radius: 6.0,
+      autofocus: true,
+      obscure: true,
+      onSubmitted: fn(text: string)
+        if text != "" then
+          System.join(name, text)
+          picked.set("")
+          session.refresh()
+        end
+      end,
+      key: "password-" .. name
+    )
+  end
+end

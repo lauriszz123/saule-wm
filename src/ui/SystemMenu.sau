@@ -7,6 +7,7 @@
 --   ─────────────────
 --   Force Quit Settings         [Alt] [☀] [Esc]
 --   ─────────────────
+--   Sleep
 --   Restart…
 --   Shut Down…
 --   ─────────────────
@@ -19,7 +20,7 @@
 
 from uikit import *
 -- `Client` too: `session.focused` is one, and its fields need the type.
-from wm import Client, Keymap, Session
+from wm import Client, Keymap, Session, System
 from Palette import Palette
 from SystemMenuItem import SystemMenuItem
 
@@ -57,6 +58,9 @@ export class SystemMenu extends View
         session.forceQuit()
       end),
       SystemMenu.separator(),
+      SystemMenu.item("Sleep", {}, System.there, fn()
+        session.sleep()
+      end),
       SystemMenu.item("Restart…", {}, true, fn()
         session.confirm("restart")
       end),

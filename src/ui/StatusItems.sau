@@ -1,0 +1,135 @@
+-- What stands at the right of the bar before the clock, as on a Mac: the
+-- network, the sound and the battery, each a small picture of how it is.
+-- Clicking one opens its panel under it (see `StatusPanel`), and lights
+-- it while the panel is open.
+--
+--   …                                  ⌔  🔊  ▭ 82%   Tue 24 Nov  14:05
+--
+-- Only what the computer has is shown: no battery on a desktop, no sound
+-- without a card, and nothing at all where nobody answers for the
+-- computer (the window manager nested in another desktop).
+
+from uikit import *
+from wm import Session, System
+from Palette import Palette
+from StatusGlyph import StatusGlyph
+
+export class StatusItems extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local items: table<View> = {}
+
+    if System.there and (System.wired or System.radio != "none") then
+      local kind, level = StatusItems.network()
+      Table.insert(items, StatusItems.item(session, "network", kind, level, ""))
+    end
+    if System.there and System.card then
+      local kind, level = StatusItems.sound()
+      Table.insert(items, StatusItems.item(session, "sound", kind, level, ""))
+    end
+    if System.battery then
+      local kind = "battery"
+      if System.charging then
+        kind = "charging"
+      end
+      local said = tostring(System.charge) .. "%"
+      Table.insert(
+        items,
+        StatusItems.item(session, "battery", kind, System.charge, said)
+      )
+    end
+
+    return HStack(
+      alignment: StackAlignment.Center,
+      sizing: StackSize.Fit,
+      spacing: 2.0,
+      children: items
+    )
+  end
+
+  -- The network's picture: a cable when one carries it, else Wi-Fi with
+  -- its strength, struck through when the radio is off.
+  static fn network() -> (string, integer)
+    if System.wiredAddress != "" then
+      return "wired", 0
+    end
+    if System.radio == "none" then
+      return "wired", 0
+    end
+    if System.radio == "off" then
+      return "wifi-off", 0
+    end
+    if System.wifi != "joined" then
+      return "wifi", 0
+    end
+    return "wifi", StatusItems.bars(System.wifiSignal)
+  end
+
+  -- A strength from 0 to 100 as one to three arcs.
+  static fn bars(signal: integer) -> integer
+    if signal >= 66 then
+      return 3
+    end
+    if signal >= 33 then
+      return 2
+    end
+    return 1
+  end
+
+  -- The sound's picture: more waves the louder, a cross when silenced.
+  static fn sound() -> (string, integer)
+    if System.muted or System.volume == 0 then
+      return "muted", 0
+    end
+    if System.volume >= 66 then
+      return "sound", 3
+    end
+    if System.volume >= 33 then
+      return "sound", 2
+    end
+    return "sound", 1
+  end
+
+  -- One of them: its picture, anything said beside it, lit while its
+  -- panel is open.
+  static fn item(
+    session: Session,
+    panel: string,
+    kind: string,
+    level: integer,
+    said: string
+  ) -> View
+    local fill: Color? = nil
+    if session.panel == panel then
+      fill = Palette.workspace
+    end
+
+    local parts: table<View> = {
+      StatusGlyph(kind, level, Palette.text).frame(width: 22.0, height: 18.0),
+    }
+    if said != "" then
+      Table.insert(parts, Text(said).font(12.0).foregroundStyle(Palette.text))
+    end
+    local row = HStack(
+      alignment: StackAlignment.Center,
+      sizing: StackSize.Fit,
+      spacing: 3.0,
+      children: parts
+    )
+    local inset = EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0)
+    local open = fn()
+      session.togglePanel(panel)
+    end
+    return GestureArea(
+      child: row.padding(insets: inset).background(fill, 5.0),
+      onTap: open
+    )
+  end
+end

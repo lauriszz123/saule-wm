@@ -1,0 +1,266 @@
+-- The small pictures at the right of the bar, drawn rather than taken
+-- from a font: the window manager ships none. Each fills the box it is
+-- given and draws in `colour`, with what is not there (a Wi-Fi arc the
+-- signal doesn't reach, the empty part of a battery) in the same colour
+-- thinned out.
+--
+--   "wifi"      a dot and three arcs, as many lit as `level` (0 to 3)
+--   "wifi-off"  the same, all thin, struck through
+--   "wired"     ‹···›, as a Mac shows a cable
+--   "sound"     a loudspeaker and as many waves as `level` (0 to 3)
+--   "muted"     the loudspeaker and a cross
+--   "battery"   a cell filled to `level` (0 to 100)
+--   "charging"  the same, with a bolt through it
+--   "lock"      a padlock: a network that wants a password
+
+import shine
+from uikit import *
+
+export class StatusGlyph extends View
+  kind: string
+  level: integer
+  colour: Color
+
+  -- How much of the colour's own opacity what is not there keeps.
+  static thin: float = 0.30
+
+  fn init(kind: string, level: integer, colour: Color, key: string? = nil)
+    self.super(key)
+    self.kind = kind
+    self.level = level
+    self.colour = colour
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local w = el.size.width
+    local h = el.size.height
+    match self.kind
+      case "wifi" then self.wifi(x, y, w, h, self.level, false)
+      case "wifi-off" then self.wifi(x, y, w, h, 0, true)
+      case "wired" then self.wired(x, y, w, h)
+      case "sound" then self.sound(x, y, w, h, self.level, false)
+      case "muted" then self.sound(x, y, w, h, 0, true)
+      case "battery" then self.battery(x, y, w, h, false)
+      case "charging" then self.battery(x, y, w, h, true)
+      case "lock" then self.lock(x, y, w, h)
+      case _ then nil
+    end
+  end
+
+  -- The colour, whole or thinned.
+  local fn ink(there: boolean) -> nil
+    local c = self.colour
+    if there then
+      Graphics.setColor(c.r, c.g, c.b, c.a)
+    else
+      Graphics.setColor(c.r, c.g, c.b, c.a * StatusGlyph.thin)
+    end
+  end
+
+  local fn wifi(
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    level: integer,
+    off: boolean
+  ) -> nil
+    local s = Math.min(w, h)
+    local cx = x + w / 2.0
+    -- The dot sits near the foot; the arcs open upward from it.
+    local cy = y + h / 2.0 + s * 0.30
+    local start = -Math.pi * 0.75
+    local finish = -Math.pi * 0.25
+
+    self.ink(level >= 1 and not off)
+    Graphics.circle("fill", cx, cy, s * 0.07)
+    Graphics.setLineWidth(Math.max(s * 0.085, 1.2))
+    for arc = 1, 3 do
+      self.ink(level >= arc and not off)
+      Graphics.arc(
+        "line",
+        cx,
+        cy,
+        s * (0.06 + 0.20 * (arc as float)),
+        start,
+        finish,
+        "open"
+      )
+    end
+
+    if off then
+      self.ink(true)
+      Graphics.line(x + w * 0.22, y + h * 0.20, x + w * 0.78, y + h * 0.84)
+    end
+  end
+
+  local fn wired(x: float, y: float, w: float, h: float) -> nil
+    local s = Math.min(w, h)
+    local cx = x + w / 2.0
+    local cy = y + h / 2.0
+    self.ink(true)
+    Graphics.setLineWidth(Math.max(s * 0.085, 1.2))
+    -- The chevrons at either end,
+    local out = s * 0.46
+    local arm = s * 0.20
+    Graphics.line(cx - out + arm, cy - arm, cx - out, cy)
+    Graphics.line(cx - out, cy, cx - out + arm, cy + arm)
+    Graphics.line(cx + out - arm, cy - arm, cx + out, cy)
+    Graphics.line(cx + out, cy, cx + out - arm, cy + arm)
+    -- and the three dots between.
+    for dot = -1, 1 do
+      Graphics.circle("fill", cx + (dot as float) * s * 0.17, cy, s * 0.055)
+    end
+  end
+
+  local fn sound(
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    level: integer,
+    muted: boolean
+  ) -> nil
+    local s = Math.min(w, h)
+    local left = x + (w - s) / 2.0
+    local cy = y + h / 2.0
+
+    -- The loudspeaker: its box, and the cone widening from it.
+    self.ink(true)
+    Graphics.rectangle(
+      "fill",
+      left + s * 0.04,
+      cy - s * 0.13,
+      s * 0.16,
+      s * 0.26,
+      1.0,
+      1.0
+    )
+    Graphics.polygon(
+      "fill",
+      {
+        left + s * 0.18,
+        cy - s * 0.13,
+        left + s * 0.42,
+        cy - s * 0.32,
+        left + s * 0.42,
+        cy + s * 0.32,
+        left + s * 0.18,
+        cy + s * 0.13,
+      }
+    )
+
+    Graphics.setLineWidth(Math.max(s * 0.085, 1.2))
+    if muted then
+      local mx = left + s * 0.74
+      local arm = s * 0.14
+      Graphics.line(mx - arm, cy - arm, mx + arm, cy + arm)
+      Graphics.line(mx - arm, cy + arm, mx + arm, cy - arm)
+      return
+    end
+    for wave = 1, 3 do
+      self.ink(level >= wave)
+      local r = s * (0.10 + 0.14 * (wave as float))
+      Graphics.arc(
+        "line",
+        left + s * 0.42,
+        cy,
+        r,
+        -Math.pi * 0.25,
+        Math.pi * 0.25,
+        "open"
+      )
+    end
+  end
+
+  local fn battery(x: float, y: float, w: float, h: float, charging: boolean) -> nil
+    -- The cell, twice as long as tall, with its cap on the right.
+    local bh = Math.min(h * 0.62, w * 0.44)
+    local bw = bh * 2.1
+    local left = x + (w - bw - 2.0) / 2.0
+    local top = y + (h - bh) / 2.0
+
+    self.ink(true)
+    Graphics.setLineWidth(1.0)
+    Graphics.rectangle(
+      "line",
+      left + 0.5,
+      top + 0.5,
+      bw - 1.0,
+      bh - 1.0,
+      2.5,
+      2.5
+    )
+    Graphics.rectangle(
+      "fill",
+      left + bw + 0.5,
+      top + bh * 0.30,
+      1.5,
+      bh * 0.40,
+      0.5,
+      0.5
+    )
+
+    local share = (Math.clamp(self.level, 0, 100) as float) / 100.0
+    local room = bw - 4.0
+    if share > 0.0 then
+      Graphics.rectangle(
+        "fill",
+        left + 2.0,
+        top + 2.0,
+        Math.max(room * share, 1.0),
+        bh - 4.0,
+        1.0,
+        1.0
+      )
+    end
+
+    if charging then
+      -- A bolt, cut out of the cell in the bar's own dark.
+      local cx = left + bw / 2.0
+      local cy = top + bh / 2.0
+      local b = bh * 0.46
+      Graphics.setColor(0.08, 0.08, 0.12, 0.95)
+      Graphics.polygon(
+        "fill",
+        {
+          cx + b * 0.25,
+          cy - b,
+          cx - b * 0.55,
+          cy + b * 0.12,
+          cx - b * 0.02,
+          cy + b * 0.12,
+          cx - b * 0.25,
+          cy + b,
+          cx + b * 0.55,
+          cy - b * 0.12,
+          cx + b * 0.02,
+          cy - b * 0.12,
+        }
+      )
+    end
+  end
+
+  local fn lock(x: float, y: float, w: float, h: float) -> nil
+    local s = Math.min(w, h)
+    local cx = x + w / 2.0
+    local cy = y + h / 2.0
+    self.ink(true)
+    -- The body, and the shackle over it.
+    Graphics.rectangle(
+      "fill",
+      cx - s * 0.26,
+      cy - s * 0.04,
+      s * 0.52,
+      s * 0.40,
+      1.5,
+      1.5
+    )
+    Graphics.setLineWidth(Math.max(s * 0.09, 1.2))
+    Graphics.arc("line", cx, cy - s * 0.04, s * 0.17, -Math.pi, 0.0, "open")
+  end
+end

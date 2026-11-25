@@ -1,0 +1,308 @@
+-- How the computer itself stands — its sound, its network, its battery —
+-- and asking it for what the window manager can't do: sleep, a volume, a
+-- Wi-Fi network.
+--
+-- On Saule Linux a program runs as root beside the session for this
+-- (saule-linux's `system/`, saule-system). It says how things stand in
+-- small files in `/run/saule/system`, read here a couple of times a
+-- second, and takes requests as files dropped in `requests/` there: a
+-- line of text each. The battery needs nobody's leave: the kernel says
+-- how it is in `/sys/class/power_supply`.
+--
+-- Anywhere else there is no such folder, nothing is shown in the bar, and
+-- asking does nothing. `SAULE_SYSTEM=folder` names another, for working
+-- on the bar with files written by hand.
+
+from Machine import Machine
+
+-- A Wi-Fi network in range.
+export class SeenNetwork
+  name: string
+  -- 0 to 100.
+  signal: integer
+  -- It wants a password.
+  secured: boolean
+  -- It was joined before, and its password is kept.
+  known: boolean
+
+  fn init(name: string, signal: integer, secured: boolean, known: boolean)
+    self.name = name
+    self.signal = signal
+    self.secured = secured
+    self.known = known
+  end
+end
+
+export class System
+  -- How often the files are read again, in seconds.
+  static readEvery: float = 0.4
+  static local readAt: float = -1.0
+
+  -- How often the battery is, which changes by the minute.
+  static batteryEvery: float = 10.0
+  static local batteryAt: float = -100.0
+
+  -- Whether there is anything to ask at all: the folder is there.
+  static there: boolean = false
+
+  -- Sound: whether there is a card, its volume from 0 to 100, and
+  -- whether it is silenced.
+  static card: boolean = false
+  static volume: integer = 0
+  static muted: boolean = false
+
+  -- How many times the computer has been put to sleep: the screen is
+  -- locked when this goes up (see `Desktop.tick`).
+  static sleeps: integer = 0
+
+  -- A cable: whether the computer has a place for one, whether one is
+  -- in, and the address it was given ("" for none).
+  static wired: boolean = false
+  static cable: boolean = false
+  static wiredAddress: string = ""
+
+  -- Wi-Fi: "none" (no radio), "off" or "on"; then "idle", "joining",
+  -- "joined" or "failed", the network that is about, its strength and
+  -- the address it gave.
+  static radio: string = "none"
+  static wifi: string = "idle"
+  static wifiName: string = ""
+  static wifiSignal: integer = 0
+  static wifiAddress: string = ""
+  static seen: table<SeenNetwork> = {}
+
+  -- The battery: whether there is one, how full from 0 to 100, and
+  -- whether it is being charged.
+  static battery: boolean = false
+  static charge: integer = 0
+  static charging: boolean = false
+
+  -- Everything above as one text: when it differs from the last, the
+  -- bar has something new to show.
+  static local shown: string = ""
+  static local count: integer = 0
+
+  static fn folder() -> string
+    return Os.getenv("SAULE_SYSTEM") ?? "/run/saule/system"
+  end
+
+  -- Read the files again if it is time. True when what they say changed.
+  static fn refresh() -> boolean
+    local clock = Os.clock()
+    if System.readAt >= 0.0 and clock - System.readAt < System.readEvery then
+      return false
+    end
+    System.readAt = clock
+
+    local folder = System.folder()
+    local power = System.read(folder .. "/power")
+    local sound = System.read(folder .. "/sound")
+    local network = System.read(folder .. "/network")
+    System.there = power != "" or sound != "" or network != ""
+
+    System.takePower(power)
+    System.takeSound(sound)
+    System.takeNetwork(network)
+    if clock - System.batteryAt >= System.batteryEvery then
+      System.batteryAt = clock
+      System.takeBattery()
+    end
+
+    local now = power .. sound .. network .. tostring(System.charge) .. tostring(
+      System.charging
+    ) .. tostring(System.battery)
+    if now == System.shown then
+      return false
+    end
+    System.shown = now
+    return true
+  end
+
+  -- Have the files read again at once: something was just asked for.
+  static fn soon() -> nil
+    System.readAt = -1.0
+  end
+
+  static fn read(path: string) -> string
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return ""
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    return text
+  end
+
+  -- `name value` lines: the value of the one called `name`, or "".
+  static fn value(text: string, name: string) -> string
+    for line in String.split(text, "\n") do
+      if String.starts(line, name .. " ") then
+        return String.trim(String.sub(line, String.len(name) + 2))
+      end
+    end
+    return ""
+  end
+
+  static local fn takePower(text: string) -> nil
+    System.sleeps = Machine.whole(System.value(text, "sleeps"))
+  end
+
+  static local fn takeSound(text: string) -> nil
+    System.card = System.value(text, "card") == "1"
+    System.volume = Machine.whole(System.value(text, "volume"))
+    System.muted = System.value(text, "muted") == "1"
+  end
+
+  -- Lines of fields separated by tabs: see saule-linux's
+  -- `system/src/network.rs`.
+  static local fn takeNetwork(text: string) -> nil
+    System.wired = false
+    System.cable = false
+    System.wiredAddress = ""
+    System.radio = "none"
+    System.wifi = "idle"
+    System.wifiName = ""
+    System.wifiSignal = 0
+    System.wifiAddress = ""
+    local seen: table<SeenNetwork> = {}
+
+    for line in String.split(text, "\n") do
+      local fields = String.split(line, "\t")
+      if fields[1] == "wired" and #fields >= 4 then
+        -- Of several, the one with a cable in it is the one that counts.
+        if not System.cable then
+          System.wired = true
+          System.cable = fields[3] == "1"
+          System.wiredAddress = System.address(fields[4])
+        end
+      elseif fields[1] == "wifi" and #fields >= 6 then
+        System.radio = fields[2]
+        System.wifi = fields[3]
+        System.wifiSignal = Machine.whole(fields[4])
+        System.wifiAddress = System.address(fields[5])
+        System.wifiName = fields[6]
+      elseif fields[1] == "seen" and #fields >= 5 then
+        Table.insert(
+          seen,
+          SeenNetwork(
+            fields[5],
+            Machine.whole(fields[2]),
+            fields[3] == "1",
+            fields[4] == "1"
+          )
+        )
+      end
+    end
+    System.seen = seen
+  end
+
+  static local fn address(field: string) -> string
+    if field == "-" then
+      return ""
+    end
+    return field
+  end
+
+  -- The first battery the kernel lists: how full it says it is, and
+  -- whether it is filling.
+  static local fn takeBattery() -> nil
+    -- `SAULE_POWER_SUPPLY` names another folder, for working on the
+    -- battery's picture on a computer without one.
+    local supplies = Os.getenv("SAULE_POWER_SUPPLY") ?? "/sys/class/power_supply"
+    System.battery = false
+    if not Os.exists(supplies) then
+      return
+    end
+    for name in Os.list(supplies) do
+      local supply = supplies .. "/" .. name
+      if not System.battery and String.trim(System.read(supply .. "/type")) == "Battery" then
+        local full = String.trim(System.read(supply .. "/capacity"))
+        if full != "" then
+          System.battery = true
+          System.charge = Machine.whole(full)
+          local status = String.trim(System.read(supply .. "/status"))
+          System.charging = status == "Charging" or status == "Full"
+        end
+      end
+    end
+  end
+
+  -- Whether the computer is on a network at all, by cable or by Wi-Fi.
+  static fn online() -> boolean
+    return System.wiredAddress != "" or System.wifiAddress != ""
+  end
+
+  -- Ask the computer for something: a line of text, as a file dropped
+  -- where saule-system looks. Written beside and renamed in, so it is
+  -- never read half-written.
+  static fn ask(request: string) -> nil
+    if not System.there then
+      return
+    end
+    System.count += 1
+    local name = tostring(Os.timeMillis()) .. "-" .. tostring(System.count)
+    local path = System.folder() .. "/requests/" .. name
+    local file = Io.open(path .. ".part", IoMode.Write)
+    if file == nil then
+      return
+    end
+    file!.write(request .. "\n")
+    file!.close()
+    Os.rename(path .. ".part", path)
+    System.soon()
+  end
+
+  static fn sleep() -> nil
+    System.ask("sleep")
+  end
+
+  -- The volume, from 0 to 100. Shown as asked at once: the card's
+  -- answer follows within the second.
+  static fn setVolume(volume: integer) -> nil
+    local asked = Math.clamp(volume, 0, 100)
+    System.volume = asked
+    if asked > 0 then
+      System.muted = false
+    end
+    System.ask("volume " .. tostring(asked))
+  end
+
+  static fn setMuted(muted: boolean) -> nil
+    System.muted = muted
+    if muted then
+      System.ask("mute 1")
+    else
+      System.ask("mute 0")
+    end
+  end
+
+  static fn setRadio(on: boolean) -> nil
+    if on then
+      System.radio = "on"
+      System.ask("wifi on")
+    else
+      System.radio = "off"
+      System.ask("wifi off")
+    end
+  end
+
+  static fn scan() -> nil
+    System.ask("wifi scan")
+  end
+
+  -- Join the Wi-Fi network called `name`, with `password` when it wants
+  -- one that isn't kept.
+  static fn join(name: string, password: string) -> nil
+    System.wifi = "joining"
+    System.wifiName = name
+    if password == "" then
+      System.ask("wifi join " .. name)
+    else
+      System.ask("wifi join " .. name .. "\t" .. password)
+    end
+  end
+
+  static fn forget(name: string) -> nil
+    System.ask("wifi forget " .. name)
+  end
+end

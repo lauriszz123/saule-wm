@@ -1,0 +1,6 @@
+wired	eth0	0	-
+wifi	on	joined	72	192.168.1.23	Home
+seen	100	1	1	Home
+seen	80	1	0	Neighbour
+seen	40	0	0	Café Wi-Fi
+seen	22	1	0	Far Away

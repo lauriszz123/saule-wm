@@ -11,4 +11,8 @@ export from Workspace import *
 export from Program import *
 export from Launcher import *
 export from SessionEnd import *
+export from Machine import *
+export from Zones import *
+export from Setup import *
+export from System import *
 export from Session import *

@@ -4,7 +4,7 @@
 -- open, goes over all of it.
 
 from uikit import *
-from wm import Changed, Direction, Keymap, Node, Session, Split
+from wm import Changed, Direction, Keymap, Node, Session, Split, System
 from Palette import Palette
 from Wallpaper import Wallpaper
 from StatusBar import StatusBar
@@ -16,6 +16,8 @@ from Transition import Transition
 from SystemMenu import SystemMenu
 from ConfirmDialog import ConfirmDialog
 from LockScreen import LockScreen
+from SetupAssistant import SetupAssistant
+from StatusPanel import StatusPanel
 from Keys import Keys
 from log import Logger
 
@@ -48,6 +50,17 @@ export class Desktop extends View
 
     self.session.start(self.apps)
 
+    -- How the computer stands, a couple of times a second: the bar shows
+    -- it. And when it has been put to sleep, by the lid or by anything
+    -- else, what wakes is a locked screen.
+    local slept = System.sleeps
+    if System.refresh() then
+      if System.sleeps > slept and not self.session.locked then
+        self.session.lock()
+      end
+      el.markNeedsBuild()
+    end
+
     -- Answer what other programs asked since the last frame (Settings,
     -- through `SettingsService`), without waiting for more.
     Looper.dispatch(0)
@@ -73,8 +86,10 @@ export class Desktop extends View
     local launcher = Desktop.cover(Desktop.launcher(session), "launcher")
     local menu = Desktop.cover(Desktop.menu(session), "menu")
     local confirm = Desktop.cover(Desktop.question(session), "confirm")
-    local layers: table<View> = {screen, launcher, menu, confirm}
+    local panel = Desktop.cover(Desktop.panel(session), "panel")
+    local layers: table<View> = {screen, launcher, menu, panel, confirm}
     Table.insert(layers, Desktop.cover(Desktop.lockScreen(session), "lock"))
+    Table.insert(layers, Desktop.cover(Desktop.setup(session), "setup"))
 
     local shortcuts = fn(e: KeyEvent) -> boolean
       return Desktop.shortcut(session, e)
@@ -131,6 +146,16 @@ export class Desktop extends View
 
     if session.resizing then
       return Desktop.resizeKey(session, e)
+    end
+
+    -- A panel under the bar: Escape closes it, and what else is typed is
+    -- for a field in it (a network's password).
+    if session.panel != "" then
+      if e.key == "escape" then
+        session.closePanel()
+        return true
+      end
+      return false
     end
 
     -- The shortcuts first, whatever they are held with: Settings may have
@@ -291,6 +316,18 @@ export class Desktop extends View
     end
     local content = fn() -> View
       return SystemMenu(session)
+    end
+    return Transition(shown, content, 0.12, 1.0)
+  end
+
+  -- A panel under the bar's right end, fading in and out as the system
+  -- menu does.
+  static fn panel(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.panel != ""
+    end
+    local content = fn() -> View
+      return StatusPanel(session)
     end
     return Transition(shown, content, 0.12, 1.0)
   end

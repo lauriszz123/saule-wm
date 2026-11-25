@@ -49,6 +49,42 @@ The system menu shows the keys in use. `SAULE_WM_KEY=super`, `alt` or
 `ctrl+alt` overrides the guess, and `SAULE_LOG=wm.keys=trace` logs every key
 the window manager receives, for finding out what a desktop swallows.
 
+## First start
+
+The first time a Saule Linux with a disk starts, the window manager asks
+three things, on a card over the blurred desktop: a name for the computer,
+its time zone (a search for a city), and the look (an accent and a
+wallpaper). Enter goes on, Escape back. Each choice takes effect as it is
+made and is kept: the look with the other settings, the name and the zone
+as files in `$SAULE_DATA/system`, which Saule Linux's init acts on (naming
+the computer and setting its clock take root). The clock in the bar is in
+that zone from then on.
+
+It is shown once. `SAULE_WM_SETUP=1 saule run .` shows it anywhere, for
+working on it; nested, the zone is kept but nothing acts on it, so the
+time stays UTC.
+
+## The bar's right end
+
+Before the clock, as on a Mac: the network (Wi-Fi's strength, or a cable),
+the sound, and the battery with how full it is. Clicking one opens its
+panel: a slider and a switch for the sound; Wi-Fi's switch and the
+networks in range, with a field for a password where one is wanted; the
+cable's address. The sun's menu has Sleep.
+
+The window manager can do none of that itself. On Saule Linux a program
+runs as root beside it for the purpose (saule-linux's `saule-system`): it
+says how things stand in files in `/run/saule/system`, which are read here
+a couple of times a second (`wm/System.sau`), and takes requests as files
+dropped there. Anywhere else there is no such folder and the bar shows
+none of it. For working on it, `SAULE_SYSTEM=folder` names a folder of
+such files written by hand, and `SAULE_POWER_SUPPLY=folder` one standing
+in for `/sys/class/power_supply`; `dev/` has both, ready:
+
+```sh
+SAULE_SYSTEM=dev/system SAULE_POWER_SUPPLY=dev/power saule run .
+```
+
 ## Logging
 
 The window manager logs through [saule-log](https://github.com/lauriszz123/saule-log),

@@ -3,13 +3,14 @@
 -- under a dark tint, both full along the top edge and melting away toward
 -- the bar's bottom, so the bar has no edge of its own.
 --
---   ☀  [1] 2  3   Saule Maker                     Tue 24 Nov  14:05
+--   ☀  [1] 2  3   Saule Maker             ⌔  🔊  ▭ 82%   Tue 24 Nov  14:05
 --
 -- The sun is where a Mac has its apple: clicking it opens the system
 -- menu (see `SystemMenu`). The workspaces are i3's: the one on screen
 -- lit, the others that have windows shown, the empty ones left out. Click
 -- one to go there. In resize mode a pill after them says so, and how to
--- get out.
+-- get out. Before the clock, as on a Mac: the network, the sound and the
+-- battery (see `StatusItems`).
 
 from uikit import *
 -- `Client` too: `session.focused` is one, and its fields need the type.
@@ -17,6 +18,7 @@ from wm import Client, Session
 from Palette import Palette
 from Clock import Clock
 from SunLogo import SunLogo
+from StatusItems import StatusItems
 
 export class StatusBar extends View
   session: Session
@@ -42,6 +44,7 @@ export class StatusBar extends View
       end
       Text(title).font(13.0).foregroundStyle(Palette.dimText)
       Spacer()
+      StatusItems(session)
       Clock()
     end
 
