@@ -9,6 +9,10 @@
 -- line of text each. The battery needs nobody's leave: the kernel says
 -- how it is in `/sys/class/power_supply`.
 --
+-- It also keeps the person's password, which the session can't read:
+-- the lock screen asks whether what was typed is right (`unlock`), and
+-- reads the answer when `tried` has gone up.
+--
 -- Anywhere else there is no such folder, nothing is shown in the bar, and
 -- asking does nothing. `SAULE_SYSTEM=folder` names another, for working
 -- on the bar with files written by hand.
@@ -30,6 +34,47 @@ export class SeenNetwork
     self.signal = signal
     self.secured = secured
     self.known = known
+  end
+end
+
+-- A sound card that can be played through.
+export class SoundCard
+  index: integer
+  name: string
+  chosen: boolean
+
+  fn init(index: integer, name: string, chosen: boolean)
+    self.index = index
+    self.name = name
+    self.chosen = chosen
+  end
+end
+
+-- A Bluetooth device found or paired.
+export class NearDevice
+  address: string
+  name: string
+  paired: boolean
+  connected: boolean
+
+  fn init(address: string, name: string, paired: boolean, connected: boolean)
+    self.address = address
+    self.name = name
+    self.paired = paired
+    self.connected = connected
+  end
+end
+
+-- A drive that is plugged in and mounted.
+export class Drive
+  device: string
+  path: string
+  label: string
+
+  fn init(device: string, path: string, label: string)
+    self.device = device
+    self.path = path
+    self.label = label
   end
 end
 
@@ -77,6 +122,44 @@ export class System
   static charge: integer = 0
   static charging: boolean = false
 
+  -- The screen's backlight: whether there is one to set, and how bright
+  -- from 0 to 100.
+  static backlight: boolean = false
+  static brightness: integer = 0
+
+  -- The microphone (whether the card records, its level, whether it is
+  -- off), the headphones' socket ("in", "out" or "none" where the card
+  -- doesn't say), and the cards that can be played through.
+  static microphone: boolean = false
+  static inputVolume: integer = 0
+  static inputMuted: boolean = false
+  static headphones: string = "none"
+  static outputs: table<SoundCard> = {}
+
+  -- Bluetooth: "none", "off" or "on"; whether it is looking; what it
+  -- found; and the digits to type on a keyboard being paired.
+  static bluetooth: string = "none"
+  static bluetoothScanning: boolean = false
+  static near: table<NearDevice> = {}
+  static passkeyFor: string = ""
+  static passkey: string = ""
+
+  -- When the clock was last set from a time server (Unix seconds, 0 for
+  -- never), and the drives plugged in.
+  static clockSynced: integer = 0
+  static drives: table<Drive> = {}
+
+  -- Who the computer is for, and whether there is a password to ask
+  -- for. Then how many passwords have been tried and how the last fared
+  -- ("right" or "wrong"), and the same for changes of password ("done",
+  -- "wrong" or "failed").
+  static person: string = ""
+  static hasPassword: boolean = false
+  static tried: integer = 0
+  static lastTry: string = "none"
+  static changes: integer = 0
+  static lastChange: string = "none"
+
   -- Everything above as one text: when it differs from the last, the
   -- bar has something new to show.
   static local shown: string = ""
@@ -98,19 +181,30 @@ export class System
     local power = System.read(folder .. "/power")
     local sound = System.read(folder .. "/sound")
     local network = System.read(folder .. "/network")
+    local display = System.read(folder .. "/display")
+    local login = System.read(folder .. "/login")
+    local bluetooth = System.read(folder .. "/bluetooth")
+    local clockFile = System.read(folder .. "/clock")
+    local disks = System.read(folder .. "/disks")
     System.there = power != "" or sound != "" or network != ""
 
     System.takePower(power)
     System.takeSound(sound)
     System.takeNetwork(network)
+    System.takeDisplay(display)
+    System.takeLogin(login)
+    System.takeBluetooth(bluetooth)
+    System.takeDisks(disks)
+    local synced = String.split(System.value(clockFile, "synced"), " ")[1] ?? ""
+    System.clockSynced = Machine.whole(synced)
     if clock - System.batteryAt >= System.batteryEvery then
       System.batteryAt = clock
       System.takeBattery()
     end
 
-    local now = power .. sound .. network .. tostring(System.charge) .. tostring(
-      System.charging
-    ) .. tostring(System.battery)
+    local now = power .. sound .. network .. display .. login .. bluetooth .. clockFile .. disks .. tostring(
+      System.charge
+    ) .. tostring(System.charging) .. tostring(System.battery)
     if now == System.shown then
       return false
     end
@@ -151,6 +245,92 @@ export class System
     System.card = System.value(text, "card") == "1"
     System.volume = Machine.whole(System.value(text, "volume"))
     System.muted = System.value(text, "muted") == "1"
+
+    System.microphone = System.value(text, "input") == "1"
+    System.inputVolume = Machine.whole(System.value(text, "input-volume"))
+    System.inputMuted = System.value(text, "input-muted") == "1"
+    local plugged = System.value(text, "headphones")
+    System.headphones = "none"
+    if plugged == "1" then
+      System.headphones = "in"
+    elseif plugged == "0" then
+      System.headphones = "out"
+    end
+    local outputs: table<SoundCard> = {}
+    for line in String.split(text, "\n") do
+      local fields = String.split(line, "\t")
+      if fields[1] == "output" and #fields >= 4 then
+        Table.insert(
+          outputs,
+          SoundCard(Machine.whole(fields[2]), fields[4], fields[3] == "1")
+        )
+      end
+    end
+    System.outputs = outputs
+  end
+
+  -- See saule-linux's `system/src/bluetooth.rs`.
+  static local fn takeBluetooth(text: string) -> nil
+    local radio = System.value(text, "radio")
+    if radio == "" then
+      radio = "none"
+    end
+    System.bluetooth = radio
+    System.bluetoothScanning = System.value(text, "scanning") == "1"
+    System.passkeyFor = ""
+    System.passkey = ""
+    local near: table<NearDevice> = {}
+    for line in String.split(text, "\n") do
+      local fields = String.split(line, "\t")
+      if fields[1] == "device" and #fields >= 5 then
+        Table.insert(
+          near,
+          NearDevice(fields[2], fields[5], fields[3] == "1", fields[4] == "1")
+        )
+      elseif fields[1] == "passkey" and #fields >= 3 then
+        System.passkeyFor = fields[2]
+        System.passkey = fields[3]
+      end
+    end
+    System.near = near
+  end
+
+  -- See saule-linux's `system/src/disks.rs`.
+  static local fn takeDisks(text: string) -> nil
+    local drives: table<Drive> = {}
+    for line in String.split(text, "\n") do
+      local fields = String.split(line, "\t")
+      if fields[1] == "drive" and #fields >= 4 then
+        Table.insert(drives, Drive(fields[2], fields[3], fields[4]))
+      end
+    end
+    System.drives = drives
+  end
+
+  static local fn takeDisplay(text: string) -> nil
+    local brightness = System.value(text, "brightness")
+    System.backlight = brightness != "" and brightness != "none"
+    System.brightness = Machine.whole(brightness)
+  end
+
+  -- See saule-linux's `system/src/login.rs`.
+  static local fn takeLogin(text: string) -> nil
+    System.person = System.value(text, "name")
+    System.hasPassword = System.value(text, "password") == "1"
+    if Os.getenv("SAULE_WM_PASSWORD") != nil then
+      System.hasPassword = true
+      return
+    end
+    local tried = String.split(System.value(text, "tried"), " ")
+    if #tried >= 2 then
+      System.tried = Machine.whole(tried[1])
+      System.lastTry = tried[2]
+    end
+    local changed = String.split(System.value(text, "changed"), " ")
+    if #changed >= 2 then
+      System.changes = Machine.whole(changed[1])
+      System.lastChange = changed[2]
+    end
   end
 
   -- Lines of fields separated by tabs: see saule-linux's
@@ -274,6 +454,74 @@ export class System
     else
       System.ask("mute 0")
     end
+  end
+
+  static fn setInputVolume(volume: integer) -> nil
+    local asked = Math.clamp(volume, 0, 100)
+    System.inputVolume = asked
+    System.ask("input " .. tostring(asked))
+  end
+
+  static fn setInputMuted(muted: boolean) -> nil
+    System.inputMuted = muted
+    if muted then
+      System.ask("input-mute 1")
+    else
+      System.ask("input-mute 0")
+    end
+  end
+
+  static fn setOutput(card: integer) -> nil
+    System.ask("output " .. tostring(card))
+  end
+
+  -- "on", "off", "scan", or with a device's address "pair", "connect",
+  -- "disconnect" or "forget". Anything else is not passed on.
+  static fn askBluetooth(action: string, address: string) -> nil
+    local alone = action == "on" or action == "off" or action == "scan"
+    local withDevice = action == "pair" or action == "connect" or action == "disconnect" or action == "forget"
+    if alone then
+      System.ask("bluetooth " .. action)
+    elseif withDevice and String.len(address) == 17 and not String.contains(address, " ") then
+      System.ask("bluetooth " .. action .. " " .. address)
+    end
+  end
+
+  static fn syncClock() -> nil
+    System.ask("clock sync")
+  end
+
+  -- The screen's brightness, from 0 to 100; shown as asked at once.
+  static fn setBrightness(percent: integer) -> nil
+    local asked = Math.clamp(percent, 0, 100)
+    System.brightness = asked
+    System.ask("brightness " .. tostring(asked))
+  end
+
+  -- Is `password` the person's? The answer is `lastTry`, once `tried`
+  -- has gone up. Spaces at either end don't count: a request is a line.
+  static fn unlock(password: string) -> nil
+    -- With a password standing in (`Machine.hasPassword`), this answers
+    -- for the system that isn't there.
+    local standIn = Os.getenv("SAULE_WM_PASSWORD")
+    if standIn != nil then
+      System.tried += 1
+      System.lastTry = "wrong"
+      if String.trim(password) == standIn! then
+        System.lastTry = "right"
+      end
+      return
+    end
+    System.ask("unlock " .. String.trim(password))
+  end
+
+  static fn setPassword(old: string, new: string) -> nil
+    System.ask("password " .. String.trim(old) .. "\t" .. String.trim(new))
+  end
+
+  static fn setPerson(name: string) -> nil
+    System.person = String.trim(name)
+    System.ask("person " .. String.trim(name))
   end
 
   static fn setRadio(on: boolean) -> nil

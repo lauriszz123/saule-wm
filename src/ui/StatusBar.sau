@@ -19,6 +19,7 @@ from Palette import Palette
 from Clock import Clock
 from SunLogo import SunLogo
 from StatusItems import StatusItems
+from AppButton import AppButton
 
 export class StatusBar extends View
   session: Session
@@ -31,9 +32,12 @@ export class StatusBar extends View
   fn body(context: BuildContext) -> View
     local session = self.session
 
+    -- The window's own title after its app's name, where it says more
+    -- than the name does.
     local title = ""
-    if session.focused != nil then
-      title = session.focused!.title
+    local focused = session.focused
+    if focused != nil and focused!.title != session.appName(focused!) then
+      title = focused!.title
     end
 
     local row = HStack(spacing: 10.0) do
@@ -42,7 +46,8 @@ export class StatusBar extends View
       if session.resizing then
         StatusBar.resizing()
       end
-      Text(title).font(13.0).foregroundStyle(Palette.dimText)
+      AppButton(session)
+      Text(title).font(13.0).foregroundStyle(Palette.dimText).lineLimit(1)
       Spacer()
       StatusItems(session)
       Clock()

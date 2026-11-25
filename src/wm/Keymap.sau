@@ -36,6 +36,15 @@ export class Keymap
   static lock: table<string> = {"ctrl", "super", "q"}
   static forceQuit: table<string> = {"alt", "super", "escape"}
 
+  -- On to the next keyboard layout, as a Mac's Ctrl+Space.
+  static layout: table<string> = {"ctrl", "space"}
+
+  -- A picture of the screen; the window out of the way, into the Dock;
+  -- and every window tiled, or every window its own.
+  static screenshot: table<string> = {"super", "shift", "s"}
+  static minimise: table<string> = {"super", "m"}
+  static windowed: table<string> = {"super", "t"}
+
   -- Close the window; float it or tile it; resize mode; the next window
   -- beside or below.
   static close: table<string> = {"super", "shift", "q"}
@@ -143,6 +152,10 @@ export class Keymap
       case "launcher" then Keymap.launcher
       case "lock" then Keymap.lock
       case "forceQuit" then Keymap.forceQuit
+      case "layout" then Keymap.layout
+      case "screenshot" then Keymap.screenshot
+      case "minimise" then Keymap.minimise
+      case "windowed" then Keymap.windowed
       case "quit" then Keymap.quit
       case "close" then Keymap.close
       case "float" then Keymap.float
@@ -161,6 +174,14 @@ export class Keymap
         Keymap.lock = keys
       case "forceQuit" then
         Keymap.forceQuit = keys
+      case "layout" then
+        Keymap.layout = keys
+      case "screenshot" then
+        Keymap.screenshot = keys
+      case "minimise" then
+        Keymap.minimise = keys
+      case "windowed" then
+        Keymap.windowed = keys
       case "quit" then
         Keymap.quit = keys
       case "close" then
@@ -200,6 +221,7 @@ export class Keymap
     Keymap.launcher = {"super", "space"}
     Keymap.lock = {"ctrl", "super", "q"}
     Keymap.forceQuit = {"alt", "super", "escape"}
+    Keymap.layout = {"ctrl", "space"}
     Keymap.quit = {"ctrl", "alt", "q"}
     Keymap.useCommon()
   end
@@ -211,6 +233,7 @@ export class Keymap
     Keymap.launcher = {"alt", "d"}
     Keymap.lock = {"alt", "l"}
     Keymap.forceQuit = {"alt", "shift", "k"}
+    Keymap.layout = {"ctrl", "alt", "k"}
     Keymap.quit = {"alt", "shift", "e"}
     Keymap.useCommon()
   end
@@ -224,6 +247,7 @@ export class Keymap
     Keymap.launcher = {"ctrl", "alt", "d"}
     Keymap.lock = {"ctrl", "alt", "l"}
     Keymap.forceQuit = {"ctrl", "alt", "escape"}
+    Keymap.layout = {"ctrl", "alt", "k"}
     Keymap.quit = {"ctrl", "alt", "shift", "e"}
     Keymap.useCommon()
   end
@@ -233,6 +257,9 @@ export class Keymap
     Keymap.close = Keymap.withMod({"shift", "q"})
     Keymap.float = Keymap.withMod({"shift", "space"})
     Keymap.resize = Keymap.withMod({"r"})
+    Keymap.screenshot = Keymap.withMod({"shift", "s"})
+    Keymap.minimise = Keymap.withMod({"m"})
+    Keymap.windowed = Keymap.withMod({"t"})
     Keymap.beside = Keymap.withMod({"h"})
     Keymap.below = Keymap.withMod({"v"})
   end

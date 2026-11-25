@@ -93,6 +93,8 @@ export class Preferences
       "grab = " .. tostring(options.grab),
       "resizeStep = " .. tostring(options.resizeStep),
       "newWindows = " .. options.newWindows,
+      "windowed = " .. tostring(options.windowed),
+      "dock = " .. tostring(options.dock),
       "accent = " .. options.accent,
       "corners = " .. tostring(options.corners),
       "wallpaper = " .. options.wallpaper,
@@ -100,6 +102,13 @@ export class Preferences
       "scrollSpeed = " .. tostring(options.scrollSpeed),
       "naturalScrolling = " .. tostring(options.naturalScrolling),
       "primaryButton = " .. options.primaryButton,
+      "trackpadSpeed = " .. tostring(options.trackpadSpeed),
+      "trackpadScrollSpeed = " .. tostring(options.trackpadScrollSpeed),
+      "trackpadNaturalScrolling = " .. tostring(
+        options.trackpadNaturalScrolling
+      ),
+      "tapToClick = " .. tostring(options.tapToClick),
+      "keyboardLayouts = " .. options.keyboardLayouts,
       "focusFollowsPointer = " .. tostring(options.focusFollowsPointer),
       "modKey = " .. options.modKey,
     }
@@ -137,6 +146,10 @@ export class Preferences
         options.resizeStep = (value as integer?) ?? options.resizeStep
       case "newWindows" then
         options.newWindows = value
+      case "windowed" then
+        options.windowed = value == "true"
+      case "dock" then
+        options.dock = value == "true"
       case "accent" then
         options.accent = value
       case "corners" then
@@ -151,6 +164,16 @@ export class Preferences
         options.naturalScrolling = value == "true"
       case "primaryButton" then
         options.primaryButton = value
+      case "trackpadSpeed" then
+        options.trackpadSpeed = (value as float?) ?? options.trackpadSpeed
+      case "trackpadScrollSpeed" then
+        options.trackpadScrollSpeed = (value as float?) ?? options.trackpadScrollSpeed
+      case "trackpadNaturalScrolling" then
+        options.trackpadNaturalScrolling = value == "true"
+      case "tapToClick" then
+        options.tapToClick = value == "true"
+      case "keyboardLayouts" then
+        options.keyboardLayouts = value
       case "focusFollowsPointer" then
         options.focusFollowsPointer = value == "true"
       case "modKey" then

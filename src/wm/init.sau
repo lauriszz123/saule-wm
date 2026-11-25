@@ -14,5 +14,8 @@ export from SessionEnd import *
 export from Machine import *
 export from Zones import *
 export from Setup import *
+export from AppInfo import *
 export from System import *
+export from Layouts import *
+export from Hardware import *
 export from Session import *

@@ -42,6 +42,10 @@ export class SystemMenu extends View
     end
 
     -- The shortcuts as `Desktop.shortcut` takes them here.
+    local arrange = "Switch to Windowed"
+    if session.windowed then
+      arrange = "Switch to Tiled"
+    end
     local forceQuitKeys = Keymap.forceQuit
     local lockKeys = Keymap.lock
 
@@ -52,6 +56,10 @@ export class SystemMenu extends View
       SystemMenu.separator(),
       SystemMenu.item("System Settings…", {}, true, fn()
         session.open("settings")
+      end),
+      SystemMenu.item(arrange, Keymap.windowed, true, fn()
+        session.closeMenu()
+        session.toggleWindowed()
       end),
       SystemMenu.separator(),
       SystemMenu.item(quitting, forceQuitKeys, focused != nil, fn()

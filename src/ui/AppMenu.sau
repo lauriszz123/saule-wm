@@ -1,0 +1,112 @@
+-- The menu under the app's name in the bar, as a Mac's application menu:
+-- about the app, its settings if it has any, and what can be done with
+-- its window.
+--
+--   About Editor
+--   Settings…             Ctrl ,
+--   ─────────────────────────────
+--   Minimise              ⌘ M
+--   Float Window / Tile Window
+--   ─────────────────────────────
+--   Close Window          ⌘ ⇧ Q
+--   Force Quit Editor
+--
+-- "Settings…" is there for an app that said it has settings
+-- (`WmSettings.describeApp`); choosing it sends the app Ctrl+comma.
+
+from uikit import *
+from wm import Keymap, Session
+from Palette import Palette
+from SystemMenu import SystemMenu
+
+export class AppMenu extends View
+  session: Session
+
+  -- How far from the screen's left edge it hangs: under the name.
+  left: float
+
+  fn init(session: Session, left: float, key: string? = nil)
+    self.super(key)
+    self.session = session
+    self.left = left
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local client = session.focused
+    local items: table<View> = {}
+
+    if client != nil then
+      local info = session.appInfo(client!)
+      Table.insert(items, SystemMenu.item("About " .. info.name, {}, true, fn()
+        session.showAbout()
+      end))
+      if info.settings then
+        Table.insert(
+          items,
+          SystemMenu.item("Settings…", {"ctrl", ","}, true, fn()
+            session.openAppSettings()
+          end)
+        )
+      end
+      Table.insert(items, SystemMenu.separator())
+      Table.insert(
+        items,
+        SystemMenu.item("Minimise", Keymap.minimise, true, fn()
+          session.minimise()
+        end)
+      )
+      local arrange = "Float Window"
+      if client!.floating then
+        arrange = "Tile Window"
+      end
+      Table.insert(
+        items,
+        SystemMenu.item(arrange, Keymap.float, client!.resizable, fn()
+          session.closeAppMenu()
+          session.toggleFloating()
+        end)
+      )
+      Table.insert(items, SystemMenu.separator())
+      Table.insert(
+        items,
+        SystemMenu.item("Close Window", Keymap.close, true, fn()
+          session.closeAppMenu()
+          session.close()
+        end)
+      )
+      Table.insert(
+        items,
+        SystemMenu.item("Force Quit " .. info.name, Keymap.forceQuit, true, fn()
+          session.closeAppMenu()
+          session.forceQuit()
+        end)
+      )
+    end
+
+    local fill = StackAlignment.Fill
+    local list = VStack(alignment: fill, spacing: 1.0, children: items)
+    local glass = Backdrop(
+      child: list.padding(5.0),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 8.0
+    )
+    local card = glass.background(nil, 8.0, border: Palette.launcherOutline)
+    local nothing = fn()
+    end
+    local held = GestureArea(
+      child: card.frame(width: Palette.menuWidth),
+      onTap: nothing
+    )
+    local placed = VStack(alignment: StackAlignment.Leading) do
+      Spacer().frame(height: Palette.barHeight)
+      held.padding(insets: EdgeInsets.only(left: self.left))
+      Spacer()
+    end
+    local close = fn()
+      session.closeAppMenu()
+    end
+    return GestureArea(child: placed, onTap: close)
+  end
+end

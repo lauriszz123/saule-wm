@@ -1,0 +1,69 @@
+-- "About" an app, as a Mac shows it: a small card in the middle of the
+-- screen with the app's icon, its name, its version and a line about it.
+-- What the app said of itself (`WmSettings.describeApp`); for one that
+-- said nothing, its name alone.
+
+from uikit import *
+from wm import AppInfo, Session
+from Palette import Palette
+from AppIcon import AppIcon
+
+export class AppAbout extends View
+  session: Session
+  info: AppInfo
+
+  fn init(session: Session, info: AppInfo, key: string? = nil)
+    self.super(key)
+    self.session = session
+    self.info = info
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local info = self.info
+    local name = Text(info.name).font(18.0).foregroundStyle(Palette.text)
+    local parts: table<View> = {
+      AppIcon(info.name).frame(width: 72.0, height: 72.0),
+      Spacer().frame(height: 4.0),
+      name,
+    }
+    if info.version != "" then
+      local version = Text("Version " .. info.version).font(12.0)
+      Table.insert(parts, version.foregroundStyle(Palette.dimText))
+    end
+    if info.about != "" then
+      local about = Text(info.about).font(12.0).foregroundStyle(Palette.dimText)
+      Table.insert(parts, Spacer().frame(height: 4.0))
+      Table.insert(
+        parts,
+        about.lineLimit(5).multilineTextAlignment(TextAlign.Center)
+      )
+    end
+
+    local column = VStack(
+      alignment: StackAlignment.Center,
+      sizing: StackSize.Fit,
+      spacing: 4.0,
+      children: parts
+    )
+    local inset = EdgeInsets.symmetric(horizontal: 26.0, vertical: 24.0)
+    local glass = Backdrop(
+      child: column.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: Palette.confirmRadius
+    )
+    local card = glass.background(
+      nil,
+      Palette.confirmRadius,
+      border: Palette.launcherOutline
+    )
+    local close = fn()
+      session.closeAbout()
+    end
+    local nothing = fn()
+    end
+    local held = GestureArea(child: card.frame(width: 300.0), onTap: nothing)
+    return GestureArea(child: held.centered(), onTap: close)
+  end
+end

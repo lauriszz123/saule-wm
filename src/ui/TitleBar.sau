@@ -34,7 +34,8 @@ export class TitleBar extends View
     local close = fn()
       session.close(client)
     end
-    local nothing = fn()
+    local away = fn()
+      session.minimise(client)
     end
     local tile = fn()
       session.toggleFloating(client)
@@ -43,7 +44,7 @@ export class TitleBar extends View
     local hide = Palette.minimiseButton
     local buttons = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
       show(TitleBar.button(Palette.closeButton, "close", lit, true, close))
-      show(TitleBar.button(hide, "minimise", lit, false, nothing))
+      show(TitleBar.button(hide, "minimise", lit, true, away))
       show(
         TitleBar.button(Palette.zoomButton, "zoom", lit, client.resizable, tile)
       )

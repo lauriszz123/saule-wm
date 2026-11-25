@@ -14,6 +14,8 @@ from Keymap import Keymap
 from Machine import Machine
 from Setup import Setup
 from System import System
+from Layouts import Layouts
+from AppInfo import AppInfo, Notice
 
 export class Session
   -- How many workspaces there are.
@@ -54,6 +56,45 @@ export class Session
   -- unlocked.
   locked: boolean
 
+  -- The lock screen's password: what has been typed, whether the system
+  -- is being asked if it is right, and whether the last one was wrong.
+  password: string
+  checking: boolean
+  wrong: boolean
+
+  -- Whether anybody has been let in since the computer started. Until
+  -- then the lock screen is the login screen: it also offers to restart
+  -- or shut down.
+  signedIn: boolean
+
+  -- What a key just changed, shown large over the screen for a moment
+  -- as a Mac does: "volume", "brightness" or "layout", or "" for nothing.
+  hud: string
+
+  -- Windowed: every window its own size, dragged about and overlapping,
+  -- as on a Mac. Not windowed: tiled. Switching moves the windows there
+  -- are (see `setWindowed`).
+  windowed: boolean
+
+  -- The Dock is shown along the foot of the screen.
+  dock: boolean
+
+  -- What apps have said of themselves, by process number.
+  apps: table<integer, AppInfo>
+
+  -- The menu under the app's name in the bar is open; and the app whose
+  -- "About" card is up, if any.
+  appMenuOpen: boolean
+  appMenuLeft: float
+  about: AppInfo?
+
+  -- Notifications on the screen now, oldest first.
+  notices: table<Notice>
+
+  -- How long a notification stays, in seconds, and how many show at once.
+  static noticeTime: float = 5.0
+  static mostNotices: integer = 4
+
   -- The first-start setup is up, over everything, until it has been
   -- through (see `Machine.needsSetup`), and how far it has got.
   settingUp: boolean
@@ -91,6 +132,27 @@ export class Session
 
   local started: boolean
 
+  -- The window that had the keyboard when this was last settled, by id;
+  -- 0 for none.
+  local keyboardAt: integer
+
+  -- How many passwords the system had been asked about before this one,
+  -- and when it was asked.
+  local triedBefore: integer
+  local askedAt: float
+
+  -- When the key that `hud` shows was pressed.
+  local hudAt: float
+
+  -- How long the system has to answer about a password, and how long
+  -- what a key changed stays on the screen, in seconds.
+  static patience: float = 15.0
+  static hudTime: float = 1.3
+
+  -- How much a press of a volume or a brightness key changes it: a Mac's
+  -- sixteen steps.
+  static step: integer = 6
+
   -- Something the screen shows changed, apart from the apps' pixels.
   local changed: boolean
 
@@ -107,8 +169,26 @@ export class Session
     self.resizing = false
     self.launching = false
     self.menuOpen = false
-    self.locked = false
     self.settingUp = Machine.needsSetup()
+    -- A computer with a password starts at its login screen; one being
+    -- set up for the first time starts at the setup, whose person it is.
+    self.locked = Machine.hasPassword() and not self.settingUp
+    self.signedIn = not self.locked
+    self.password = ""
+    self.checking = false
+    self.wrong = false
+    self.keyboardAt = 0
+    self.triedBefore = 0
+    self.askedAt = 0.0
+    self.hud = ""
+    self.hudAt = 0.0
+    self.windowed = false
+    self.dock = true
+    self.apps = {}
+    self.appMenuOpen = false
+    self.appMenuLeft = 60.0
+    self.about = nil
+    self.notices = {}
     self.setup = Setup()
     self.lookChanged = false
     self.panel = ""
@@ -184,6 +264,261 @@ export class Session
     self.sync()
   end
 
+  -- Arrange every window as `windowed` says: all floating, each where
+  -- and as large as it was last; or tiled again, but for those that were
+  -- floated on purpose or can't be tiled (a fixed size).
+  fn setWindowed(windowed: boolean) -> nil
+    if windowed == self.windowed then
+      return
+    end
+    self.windowed = windowed
+    for client in self.clients do
+      if client.resizable and not client.minimised then
+        local workspace = self.workspaces[client.workspace]
+        if windowed and not client.floating then
+          workspace.toggleFloating(client, self.split)
+          client.byMode = true
+        elseif not windowed and client.floating and client.byMode then
+          workspace.toggleFloating(client, self.split)
+          client.byMode = false
+        end
+      end
+    end
+    Session.log.info("windows arranged", {windowed: windowed})
+    self.sync()
+  end
+
+  -- Tiled to windowed, or back: the settings service saves it.
+  fn toggleWindowed() -> nil
+    self.setWindowed(not self.windowed)
+    self.lookChanged = true
+    if self.windowed then
+      self.notify("Windowed", "Windows can be dragged and overlap.")
+    else
+      self.notify("Tiled", "Windows share the screen.")
+    end
+  end
+
+  -- Put `client` (the focused window when none is given) out of the way,
+  -- in the Dock.
+  fn minimise(client: Client? = nil) -> nil
+    local window = client ?? self.focused
+    if window == nil or window!.minimised then
+      return
+    end
+    self.workspaces[window!.workspace].remove(window!)
+    window!.minimised = true
+    self.appMenuOpen = false
+    Session.log.debug("window minimised", {id: window!.id})
+    self.sync()
+  end
+
+  -- Bring a minimised window back, onto the workspace on screen, with
+  -- the keyboard.
+  fn restore(client: Client) -> nil
+    if not client.minimised then
+      return
+    end
+    client.minimised = false
+    client.workspace = self.current
+    self.workspace().add(client, self.split)
+    self.sync()
+  end
+
+  -- The windows in the Dock, oldest first.
+  fn minimised() -> table<Client>
+    local out: table<Client> = {}
+    for client in self.clients do
+      if client.minimised then
+        Table.insert(out, client)
+      end
+    end
+    return out
+  end
+
+  -- Give `client` the keyboard wherever it is: brought back if it was
+  -- minimised, its workspace shown if it is on another.
+  fn reveal(client: Client) -> nil
+    if client.minimised then
+      self.restore(client)
+      return
+    end
+    if client.workspace != self.current then
+      self.current = client.workspace
+    end
+    self.workspace().focused = client
+    if client.floating then
+      self.workspace().raise(client)
+    end
+    self.sync()
+  end
+
+  -- What `client`'s app is called: what it said of itself, else the
+  -- program it was started as, else its window's title.
+  fn appName(client: Client) -> string
+    local pid = Compositor.pid(client.id)
+    if pid != nil then
+      local info = self.apps[pid!]
+      if info != nil then
+        return info!.name
+      end
+      local program = Launcher.programOf(pid!)
+      if program != nil then
+        return program!.name
+      end
+    end
+    return client.title
+  end
+
+  -- What `client`'s app said of itself; made up from its name when it
+  -- said nothing.
+  fn appInfo(client: Client) -> AppInfo
+    local pid = Compositor.pid(client.id)
+    if pid != nil then
+      local info = self.apps[pid!]
+      if info != nil then
+        return info!
+      end
+    end
+    return AppInfo(self.appName(client), "", "", false)
+  end
+
+  -- The windows of the app called `name`, whatever their state.
+  fn windowsOf(name: string) -> table<Client>
+    local wanted = String.lower(name)
+    local out: table<Client> = {}
+    for client in self.clients do
+      local pid = Compositor.pid(client.id)
+      local program: Program? = nil
+      if pid != nil then
+        program = Launcher.programOf(pid!)
+      end
+      if program != nil and String.lower(program!.name) == wanted then
+        Table.insert(out, client)
+      end
+    end
+    return out
+  end
+
+  -- An app said what it is: kept by its process.
+  fn describe(pid: integer, info: AppInfo) -> nil
+    self.apps[pid] = info
+    self.sync()
+  end
+
+  -- The Dock's icon for `program` was clicked: its window comes forward
+  -- if it has one, and otherwise it is started.
+  fn dockOpen(program: Program) -> nil
+    local windows = self.windowsOf(program.name)
+    if #windows == 0 then
+      self.launch(program)
+      return
+    end
+    -- The one with the keyboard already: on to its next window.
+    local target = windows[1]
+    for i = 1, #windows do
+      if windows[i] == self.focused then
+        target = windows[i % #windows + 1]
+      end
+    end
+    self.reveal(target)
+  end
+
+  fn toggleAppMenu() -> nil
+    self.appMenuOpen = not self.appMenuOpen and self.focused != nil
+    self.menuOpen = false
+    self.panel = ""
+    self.sync()
+  end
+
+  fn closeAppMenu() -> nil
+    self.appMenuOpen = false
+    self.sync()
+  end
+
+  -- Show the focused app's "About" card.
+  fn showAbout() -> nil
+    self.appMenuOpen = false
+    local client = self.focused
+    if client != nil then
+      self.about = self.appInfo(client!)
+    end
+    self.sync()
+  end
+
+  fn closeAbout() -> nil
+    self.about = nil
+    self.sync()
+  end
+
+  -- Have the focused app open its settings: it is sent Ctrl+comma, as a
+  -- Mac's apps are sent Command+comma.
+  fn openAppSettings() -> nil
+    self.appMenuOpen = false
+    local client = self.focused
+    if client != nil then
+      Compositor.sendKey(client!.id, ",", true, false, true, false)
+      Compositor.sendKey(client!.id, ",", false, false, true, false)
+    end
+    self.sync()
+  end
+
+  -- Show a notification for a few seconds.
+  fn notify(title: string, body: string) -> nil
+    Table.insert(self.notices, Notice(title, body, Os.clock()))
+    while #self.notices > Session.mostNotices do
+      Table.remove(self.notices, 1)
+    end
+    self.sync()
+  end
+
+  -- Each frame: notifications that have been up long enough go.
+  fn noticesDue() -> nil
+    local now = Os.clock()
+    local kept: table<Notice> = {}
+    for notice in self.notices do
+      if now - notice.at < Session.noticeTime then
+        Table.insert(kept, notice)
+      end
+    end
+    if #kept != #self.notices then
+      self.notices = kept
+      self.sync()
+    end
+  end
+
+  fn dismiss(notice: Notice) -> nil
+    local kept: table<Notice> = {}
+    for other in self.notices do
+      if other != notice then
+        Table.insert(kept, other)
+      end
+    end
+    self.notices = kept
+    self.sync()
+  end
+
+  -- A picture of the screen as it is, kept in Pictures as a PNG named
+  -- for the moment it was taken.
+  fn screenshot() -> nil
+    local home = Os.getenv("HOME") ?? "."
+    local folder = home .. "/Pictures"
+    Os.mkdir(folder, true)
+    local now = Machine.now()
+    local name = "Screenshot " .. Os.date("%Y-%m-%d", now) .. " at " .. Os.date(
+      "%H.%M.%S",
+      now
+    ) .. ".png"
+    try
+      Graphics.captureScreenshot(folder .. "/" .. name)
+      Session.log.info("screenshot", {file: name})
+      self.notify("Screenshot saved", name .. " is in Pictures.")
+    catch e: string
+      Session.log.warn("no screenshot", {reason: e})
+      self.notify("No screenshot", "The picture could not be saved.")
+    end
+  end
+
   -- Float `client`, or tile it when it floats: the focused window when
   -- none is given. It has the keyboard after.
   fn toggleFloating(client: Client? = nil) -> nil
@@ -191,6 +526,8 @@ export class Session
     -- A window of a fixed size always floats: tiled, it would be stretched.
     if window != nil and window!.resizable then
       self.workspaces[window!.workspace].toggleFloating(window!, self.split)
+      -- Floated or tiled on purpose now, whatever the mode did.
+      window!.byMode = false
       Session.log.debug(
         "window floats",
         {id: window!.id, floating: window!.floating}
@@ -245,7 +582,8 @@ export class Session
   fn ownsKeyboard() -> boolean
     local asking = self.confirming != ""
     local over = self.locked or self.settingUp or self.panel != ""
-    return self.launching or self.menuOpen or over or asking
+    local menus = self.menuOpen or self.appMenuOpen or self.about != nil
+    return self.launching or menus or over or asking
   end
 
   -- The setup's next page; after its last, it has been through and
@@ -274,6 +612,7 @@ export class Session
   -- Open the system menu, or close it when it is open.
   fn toggleMenu() -> nil
     self.menuOpen = not self.menuOpen
+    self.appMenuOpen = false
     self.panel = ""
     self.sync()
   end
@@ -335,18 +674,139 @@ export class Session
 
   fn lock() -> nil
     self.menuOpen = false
+    self.appMenuOpen = false
+    self.about = nil
     self.panel = ""
     self.launching = false
     self.resizing = false
     self.locked = true
+    self.password = ""
+    self.checking = false
+    self.wrong = false
     Session.log.info("screen locked")
     self.sync()
   end
 
+  -- Whether the lock screen asks for a password.
+  fn needsPassword() -> boolean
+    return System.hasPassword or Machine.hasPassword()
+  end
+
+  -- A click or Enter on the lock screen: unlocks it where there is no
+  -- password, and otherwise does nothing (the password is `submit`ted).
   fn unlock() -> nil
+    if self.needsPassword() then
+      return
+    end
+    self.letIn()
+  end
+
+  -- The password typed, to be checked: the system says whether it is
+  -- right (`answered`), since only it can read what is kept of one.
+  fn submit(password: string) -> nil
+    if not self.locked or self.checking then
+      return
+    end
+    if not self.needsPassword() then
+      self.letIn()
+      return
+    end
+    self.password = password
+    self.checking = true
+    self.wrong = false
+    self.triedBefore = System.tried
+    self.askedAt = Os.clock()
+    System.unlock(password)
+    self.sync()
+  end
+
+  -- Each frame while a password is being checked: take the system's
+  -- answer when it has come. One that never comes is taken for a no,
+  -- not waited for for ever.
+  fn answered() -> nil
+    if not self.checking then
+      return
+    end
+    if System.tried > self.triedBefore then
+      self.checking = false
+      if System.lastTry == "right" then
+        self.letIn()
+        return
+      end
+      Session.log.info("wrong password")
+    elseif Os.clock() - self.askedAt < Session.patience then
+      return
+    else
+      self.checking = false
+      Session.log.warn("nobody answered about the password")
+    end
+    self.wrong = true
+    self.password = ""
+    self.sync()
+  end
+
+  local fn letIn() -> nil
     self.locked = false
+    self.signedIn = true
+    self.password = ""
+    self.checking = false
+    self.wrong = false
     Session.log.info("screen unlocked")
     self.sync()
+  end
+
+  -- The volume up or down by `steps` presses of its key, shown on the
+  -- screen. Turning it up is also turning the sound back on.
+  fn volumeBy(steps: integer) -> nil
+    if not System.card then
+      return
+    end
+    local volume = System.volume + steps * Session.step
+    -- From a value between two steps, to the step: 50, 56, 62, …
+    volume = Math.clamp(volume, 0, 100)
+    System.setVolume(volume)
+    if steps > 0 and System.muted then
+      System.setMuted(false)
+    end
+    self.flash("volume")
+  end
+
+  fn toggleMute() -> nil
+    if not System.card then
+      return
+    end
+    System.setMuted(not System.muted)
+    self.flash("volume")
+  end
+
+  fn brightnessBy(steps: integer) -> nil
+    if not System.backlight then
+      return
+    end
+    System.setBrightness(System.brightness + steps * Session.step)
+    self.flash("brightness")
+  end
+
+  -- On to the next keyboard layout, where more than one was chosen.
+  fn nextLayout() -> nil
+    if Layouts.next() then
+      self.flash("layout")
+    end
+  end
+
+  -- Show what a key changed, for a moment.
+  local fn flash(what: string) -> nil
+    self.hud = what
+    self.hudAt = Os.clock()
+    self.sync()
+  end
+
+  -- Each frame: what a key changed has been on the screen long enough.
+  fn hudDue() -> nil
+    if self.hud != "" and Os.clock() - self.hudAt >= Session.hudTime then
+      self.hud = ""
+      self.sync()
+    end
   end
 
   -- End the window manager with `code`, asking every app to close first.
@@ -505,6 +965,11 @@ export class Session
               floating: client.floating,
             }
           )
+          -- Where every window floats, so does a new one.
+          if self.windowed and client.resizable then
+            client.floating = true
+            client.byMode = true
+          end
           Table.insert(self.clients, client)
           self.workspace().add(client, self.split)
           self.sync()
@@ -561,6 +1026,17 @@ export class Session
   -- ends with no window left to resize.
   local fn sync() -> nil
     self.focused = self.workspace().focused
+    -- The window that had the keyboard and hasn't now is told, whatever
+    -- took it away (minimised, another workspace shown): a window never
+    -- told keeps thinking the keys held at that moment are held still.
+    local now = 0
+    if self.focused != nil then
+      now = self.focused!.id
+    end
+    if self.keyboardAt != 0 and self.keyboardAt != now and self.find(self.keyboardAt) != nil then
+      Compositor.sendFocus(self.keyboardAt, false)
+    end
+    self.keyboardAt = now
     if self.focused == nil then
       self.resizing = false
     end

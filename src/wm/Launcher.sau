@@ -24,6 +24,15 @@ export class Launcher
   -- Quit ends. They are this process's children, so it can.
   static local running: table<Process> = {}
 
+  -- Which program each process started here is, by its process number:
+  -- how a window is known for its app's.
+  static local started: table<integer, Program> = {}
+
+  -- The program the process `pid` was started as, if it was started here.
+  static fn programOf(pid: integer) -> Program?
+    return Launcher.started[pid]
+  end
+
   -- Start `apps`, the ones the window manager was started with.
   static fn startApps(apps: table<string>) -> nil
     for path in apps do
@@ -73,9 +82,10 @@ export class Launcher
     return starts
   end
 
-  -- Start `program`. False when it could not be started.
-  static fn start(program: Program) -> boolean
-    local process = Os.spawn(program.path)
+  -- Start `program`, with `arguments` for it when another app asked for
+  -- it to open something. False when it could not be started.
+  static fn start(program: Program, arguments: table<string> = {}) -> boolean
+    local process = Os.spawn(program.path, arguments)
     if process == nil then
       Launcher.log.error("could not start", {path: program.path})
       return false
@@ -85,7 +95,22 @@ export class Launcher
       {name: program.name, path: program.path, pid: process!.pid()}
     )
     Table.insert(Launcher.running, process!)
+    Launcher.started[process!.pid()] = program
     return true
+  end
+
+  -- Start the installed app called `name`, whatever its case, with
+  -- `arguments`. False when there is none by that name.
+  static fn startNamed(name: string, arguments: table<string>) -> boolean
+    local wanted = String.lower(name)
+    for path in Launcher.installed() do
+      local program = Program(path)
+      if String.lower(program.name) == wanted then
+        return Launcher.start(program, arguments)
+      end
+    end
+    Launcher.log.warn("no such app", {name: name})
+    return false
   end
 
   -- Pass on what the apps started here wrote since last time, each frame.

@@ -1,0 +1,40 @@
+-- The name of the app that has the keyboard, in the bar, where a Mac has
+-- its application menu: a button that opens the app's menu under it
+-- (see `AppMenu`), lit while the menu is open.
+
+from uikit import *
+from wm import Session
+from Palette import Palette
+
+export class AppButton extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local client = session.focused
+    if client == nil then
+      return Spacer().frame(width: 1.0)
+    end
+
+    local fill: Color? = nil
+    if session.appMenuOpen then
+      fill = Palette.workspace
+    end
+    local name = Text(session.appName(client!)).font(13.0)
+    local inset = EdgeInsets.symmetric(horizontal: 7.0, vertical: 2.0)
+    local shown = name.foregroundStyle(Palette.text).lineLimit(1).padding(
+      insets: inset
+    ).background(fill, 5.0)
+    local open = fn()
+      -- Where the menu hangs: under this, wherever the bar has put it.
+      session.appMenuLeft = absoluteOf(context.element()).dx
+      session.toggleAppMenu()
+    end
+    return GestureArea(child: shown, onTap: open)
+  end
+end

@@ -46,6 +46,14 @@ export class Client
   -- the screen the first time it shows (see `FloatingLayer`).
   placed: boolean
 
+  -- Out of the way, in the Dock: on no workspace until it is brought
+  -- back.
+  minimised: boolean
+
+  -- It floats only because every window does (windowed mode), not
+  -- because it was asked to: it is tiled again when tiling comes back.
+  byMode: boolean
+
   fn init(
     id: integer,
     title: string,
@@ -65,6 +73,8 @@ export class Client
     self.width = Math.max(width, Client.smallest)
     self.height = Math.max(height, Client.smallest)
     self.placed = false
+    self.minimised = false
+    self.byMode = false
   end
 
   -- Move a floating window a step the `direction` way.

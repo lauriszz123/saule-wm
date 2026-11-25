@@ -18,6 +18,11 @@ from ConfirmDialog import ConfirmDialog
 from LockScreen import LockScreen
 from SetupAssistant import SetupAssistant
 from StatusPanel import StatusPanel
+from Hud import Hud
+from Dock import Dock
+from Notices import Notices
+from AppMenu import AppMenu
+from AppAbout import AppAbout
 from Keys import Keys
 from log import Logger
 
@@ -60,6 +65,30 @@ export class Desktop extends View
       end
       el.markNeedsBuild()
     end
+    -- A password being checked has its answer, and what a key changed
+    -- has been shown long enough.
+    self.session.answered()
+    self.session.hudDue()
+    self.session.noticesDue()
+
+    -- A drive plugged in or let go of is said.
+    local bag: table = el.data.scratch
+    local drives: table<string> = {}
+    for drive in System.drives do
+      Table.insert(drives, drive.label)
+    end
+    local now = String.join("\n", drives)
+    local before = bag.drives as string?
+    if before != nil and now != before! then
+      if #drives > #String.split(before!, "\n") or before! == "" then
+        local label = drives[#drives] ?? ""
+        if label == "" then
+          label = "USB Drive"
+        end
+        self.session.notify("Drive connected", label .. " is in Files, under Locations.")
+      end
+    end
+    bag.drives = now
 
     -- Answer what other programs asked since the last frame (Settings,
     -- through `SettingsService`), without waiting for more.
@@ -75,9 +104,14 @@ export class Desktop extends View
   fn body(context: BuildContext) -> View
     local session = self.session
 
+    -- The Dock has a strip of its own along the foot, so no window is
+    -- ever under it.
     local screen = VStack(alignment: StackAlignment.Fill) do
       StatusBar(session)
       Desktop.windows(session).padding(Palette.gap).expanded()
+      if session.dock then
+        Dock(session).frame(height: Dock.height)
+      end
     end
 
     -- Over the windows: the launcher, the system menu, a question, and
@@ -87,9 +121,22 @@ export class Desktop extends View
     local menu = Desktop.cover(Desktop.menu(session), "menu")
     local confirm = Desktop.cover(Desktop.question(session), "confirm")
     local panel = Desktop.cover(Desktop.panel(session), "panel")
-    local layers: table<View> = {screen, launcher, menu, panel, confirm}
+    local appMenu = Desktop.cover(Desktop.appMenu(session), "appMenu")
+    local about = Desktop.cover(Desktop.about(session), "about")
+    local layers: table<View> = {
+      screen,
+      Desktop.cover(Notices(session), "notices"),
+      launcher,
+      menu,
+      appMenu,
+      panel,
+      about,
+      confirm,
+    }
     Table.insert(layers, Desktop.cover(Desktop.lockScreen(session), "lock"))
     Table.insert(layers, Desktop.cover(Desktop.setup(session), "setup"))
+    -- Over everything, the lock screen too: the volume keys work there.
+    Table.insert(layers, Desktop.cover(Desktop.hud(session), "hud"))
 
     local shortcuts = fn(e: KeyEvent) -> boolean
       return Desktop.shortcut(session, e)
@@ -116,7 +163,11 @@ export class Desktop extends View
   --   `Keymap.launcher`         the launcher (Super + Space)
   --   `Keymap.lock`             lock the screen (Ctrl + Super + Q)
   --   `Keymap.forceQuit`        force quit (Alt + Super + Escape)
+  --   `Keymap.layout`           the next keyboard layout (Ctrl + Space)
   --   `Keymap.quit`             quit the window manager
+  --
+  -- And the keys with a picture on them, which need holding with nothing
+  -- (see `machineKey`): the volume, the brightness, sleep and power.
   static fn shortcut(session: Session, e: KeyEvent) -> boolean
     Desktop.log.trace(
       "key",
@@ -134,6 +185,13 @@ export class Desktop extends View
       return true
     end
 
+    -- The computer's own keys, whatever is on the screen: the volume can
+    -- be turned down at the lock screen, and a password typed in the
+    -- right layout.
+    if Desktop.machineKey(session, e) then
+      return true
+    end
+
     -- The first-start setup has it before anything else is in use.
     if session.settingUp then
       return Desktop.setupKey(session, e)
@@ -142,6 +200,14 @@ export class Desktop extends View
     -- The lock screen, a question or the system menu has the keyboard.
     if session.locked or session.confirming != "" or session.menuOpen then
       return Desktop.overlayKey(session, e)
+    end
+    -- So has the app's menu, and the card about an app: Escape closes.
+    if session.appMenuOpen or session.about != nil then
+      if e.key == "escape" or e.key == "return" then
+        session.closeAppMenu()
+        session.closeAbout()
+      end
+      return true
     end
 
     if session.resizing then
@@ -170,6 +236,37 @@ export class Desktop extends View
     return false
   end
 
+  -- The keys a laptop has pictures on, which Shine names, and the
+  -- keyboard layout's shortcut. Each is done and, where there is
+  -- something to see, shown for a moment (`Hud`).
+  --
+  --   volume up / down, mute       the sound card's
+  --   brightness up / down         the screen's backlight
+  --   sleep                        sleep, locked
+  --   power                        "Shut down?", unless the screen is
+  --                                locked or the setup is up
+  static fn machineKey(session: Session, e: KeyEvent) -> boolean
+    match e.key
+      case "volumeup" then session.volumeBy(1)
+      case "volumedown" then session.volumeBy(-1)
+      case "mute" then session.toggleMute()
+      case "brightnessup" then session.brightnessBy(1)
+      case "brightnessdown" then session.brightnessBy(-1)
+      case "sleep" then session.sleep()
+      case "printscreen" then session.screenshot()
+      case "power" then
+        if not session.locked and not session.settingUp then
+          session.confirm("shutDown")
+        end
+      case _ then
+        if not Keys.pressed(e, Keymap.layout) then
+          return false
+        end
+        session.nextLayout()
+    end
+    return true
+  end
+
   -- The shortcut `e` is, done; false when it is none.
   static fn command(session: Session, e: KeyEvent) -> boolean
     if Keys.pressed(e, Keymap.launcher) then
@@ -182,6 +279,12 @@ export class Desktop extends View
       session.lock()
     elseif Keys.pressed(e, Keymap.forceQuit) then
       session.forceQuit()
+    elseif Keys.pressed(e, Keymap.minimise) then
+      session.minimise()
+    elseif Keys.pressed(e, Keymap.windowed) then
+      session.toggleWindowed()
+    elseif Keys.pressed(e, Keymap.screenshot) then
+      session.screenshot()
     elseif Keys.pressed(e, Keymap.close) then
       session.close()
     elseif Keys.pressed(e, Keymap.beside) then
@@ -242,11 +345,15 @@ export class Desktop extends View
   -- A key while the lock screen, a question or the system menu is up:
   -- all of them are the window manager's, so none reaches an app.
   --
-  --   locked        Enter unlocks
+  --   locked        Enter unlocks; with a password, every key is left
+  --                 to the field it is typed in, Enter too
   --   a question    Enter does it, Escape doesn't
   --   the menu      Escape closes it
   static fn overlayKey(session: Session, e: KeyEvent) -> boolean
     if session.locked then
+      if session.needsPassword() then
+        return false
+      end
       if e.key == "return" then
         session.unlock()
       end
@@ -344,6 +451,43 @@ export class Desktop extends View
       return ConfirmDialog(session)
     end
     return Transition(shown, content, 0.18, 1.0)
+  end
+
+  -- The app's menu, under its name in the bar.
+  static fn appMenu(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.appMenuOpen
+    end
+    local content = fn() -> View
+      return AppMenu(session, session.appMenuLeft)
+    end
+    return Transition(shown, content, 0.12, 1.0)
+  end
+
+  -- The card about an app.
+  static fn about(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.about != nil
+    end
+    local content = fn() -> View
+      local info = session.about
+      if info == nil then
+        return Spacer()
+      end
+      return AppAbout(session, info!)
+    end
+    return Transition(shown, content, 0.15, 0.97)
+  end
+
+  -- What a key just changed, fading in and out quickly.
+  static fn hud(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.hud != ""
+    end
+    local content = fn() -> View
+      return Hud(session)
+    end
+    return Transition(shown, content, 0.15, 1.0)
   end
 
   -- The lock screen, as a Mac's: locking fades it in over the desktop,

@@ -11,8 +11,8 @@
 
 import shine
 from uikit import Display
-from "wmapi" import StorageReport, SystemInfo, WmOptions, WmService, WmSettings
-from wm import Keymap, Pointer, Session, Split
+from "wmapi" import BluetoothDevice, MachineInfo, SoundOutput, StorageReport, SystemInfo, WifiNetwork, WmOptions, WmService, WmSettings
+from wm import AppInfo, Hardware, Keymap, Launcher, Layouts, Machine, Pointer, Session, Split, System, Zones
 from ui import Palette
 from log import Logger
 from GraphicsCard import GraphicsCard
@@ -51,6 +51,10 @@ export class SettingsService implements WmSettings
     local saved = Preferences.load()
     if saved != nil then
       service.use(saved!)
+    else
+      -- Nothing saved yet: the defaults, which for the keyboard is the
+      -- layout the installer was told, and for a trackpad its own.
+      service.use(WmOptions())
     end
     try
       WmSettings.publish(WmService.name, service)
@@ -69,6 +73,8 @@ export class SettingsService implements WmSettings
     if self.session.split == Split.Vertical then
       options.newWindows = "below"
     end
+    options.windowed = self.session.windowed
+    options.dock = self.session.dock
     options.accent = Palette.accentName
     options.corners = Palette.radius
     options.wallpaper = Palette.wallpaperName
@@ -80,6 +86,11 @@ export class SettingsService implements WmSettings
       options.primaryButton = "right"
     end
     options.focusFollowsPointer = Pointer.followsFocus
+    options.trackpadSpeed = Pointer.padSpeed
+    options.trackpadScrollSpeed = Pointer.padScrollSpeed
+    options.trackpadNaturalScrolling = Pointer.padNatural
+    options.tapToClick = Pointer.tapToClick
+    options.keyboardLayouts = Layouts.written
     options.modKey = Keymap.chosenMod
     local custom: table<string, string> = {}
     for name, keys in Keymap.custom do
@@ -127,12 +138,21 @@ export class SettingsService implements WmSettings
       options.primaryButton == "right",
       options.focusFollowsPointer
     )
+    Pointer.configureTrackpad(
+      options.trackpadSpeed,
+      options.trackpadScrollSpeed,
+      options.trackpadNaturalScrolling,
+      options.tapToClick
+    )
+    Layouts.configure(options.keyboardLayouts)
 
     local split = Split.Horizontal
     if options.newWindows == "below" then
       split = Split.Vertical
     end
     self.session.splitNext(split)
+    self.session.setWindowed(options.windowed)
+    self.session.dock = options.dock
     self.session.refresh()
   end
 
@@ -168,6 +188,210 @@ export class SettingsService implements WmSettings
 
   fn storage() -> StorageReport
     return Storage.report()
+  end
+
+  -- The computer as it stands: what `System` last read, what Shine found
+  -- plugged in, and what was chosen for it.
+  fn machine() -> MachineInfo
+    local info = MachineInfo()
+    info.managed = System.there
+    info.devices = Hardware.devices()
+
+    info.soundCard = System.card
+    info.volume = System.volume
+    info.muted = System.muted
+    info.backlight = System.backlight
+    info.brightness = System.brightness
+
+    info.wired = System.wired
+    info.cable = System.cable
+    info.wiredAddress = System.wiredAddress
+    info.radio = System.radio
+    info.wifi = System.wifi
+    info.wifiName = System.wifiName
+    info.wifiSignal = System.wifiSignal
+    info.wifiAddress = System.wifiAddress
+    local networks: table<WifiNetwork> = {}
+    for seen in System.seen do
+      local network = WifiNetwork()
+      network.name = seen.name
+      network.signal = seen.signal
+      network.secured = seen.secured
+      network.known = seen.known
+      Table.insert(networks, network)
+    end
+    info.networks = networks
+
+    info.battery = System.battery
+    info.charge = System.charge
+    info.charging = System.charging
+
+    info.name = Machine.name()
+    info.timeZone = Machine.zone()
+    info.kept = Machine.kept()
+    info.person = System.person
+    info.account = Os.getenv("USER") ?? ""
+    info.hasPassword = System.hasPassword
+    info.passwordChanges = System.changes
+    info.passwordChange = System.lastChange
+
+    info.microphone = System.microphone
+    info.inputVolume = System.inputVolume
+    info.inputMuted = System.inputMuted
+    info.headphones = System.headphones
+    local outputs: table<SoundOutput> = {}
+    for card in System.outputs do
+      local output = SoundOutput()
+      output.index = card.index
+      output.name = card.name
+      output.chosen = card.chosen
+      Table.insert(outputs, output)
+    end
+    info.outputs = outputs
+
+    info.bluetooth = System.bluetooth
+    info.bluetoothScanning = System.bluetoothScanning
+    local near: table<BluetoothDevice> = {}
+    for found in System.near do
+      local device = BluetoothDevice()
+      device.address = found.address
+      device.name = found.name
+      device.paired = found.paired
+      device.connected = found.connected
+      Table.insert(near, device)
+    end
+    info.bluetoothDevices = near
+    info.passkeyFor = System.passkeyFor
+    info.passkey = System.passkey
+    info.clockSynced = System.clockSynced
+
+    info.layoutsOffered = Layouts.offered()
+    info.layout = Layouts.code()
+    return info
+  end
+
+  fn layouts() -> table<string>
+    return Layouts.all()
+  end
+
+  fn zones() -> table<string>
+    local out: table<string> = {}
+    for zone in Zones.all() do
+      Table.insert(out, zone.id .. "\t" .. zone.city .. "\t" .. zone.region)
+    end
+    return out
+  end
+
+  fn setVolume(volume: integer)
+    System.setVolume(volume)
+    self.session.refresh()
+  end
+
+  fn setMuted(muted: boolean)
+    System.setMuted(muted)
+    self.session.refresh()
+  end
+
+  fn setBrightness(percent: integer)
+    System.setBrightness(percent)
+  end
+
+  fn setRadio(on: boolean)
+    System.setRadio(on)
+    self.session.refresh()
+  end
+
+  fn joinNetwork(name: string, password: string)
+    System.join(name, password)
+    self.session.refresh()
+  end
+
+  fn forgetNetwork(name: string)
+    System.forget(name)
+  end
+
+  fn scanNetworks()
+    System.scan()
+  end
+
+  -- Kept as a name a network can carry: what the first-start setup makes
+  -- of what is typed. One with no letter or digit in it changes nothing.
+  fn setComputerName(name: string)
+    local kept = Machine.nameFrom(name)
+    if kept != "" then
+      Machine.setName(kept)
+      SettingsService.log.info("computer named", {name: kept})
+    end
+  end
+
+  -- A zone the system doesn't list changes nothing.
+  fn setTimeZone(zone: string)
+    for known in Zones.all() do
+      if known.id == zone then
+        Machine.setZone(zone)
+        self.session.refresh()
+        SettingsService.log.info("time zone set", {zone: zone})
+        return
+      end
+    end
+  end
+
+  fn setPerson(name: string)
+    System.setPerson(name)
+  end
+
+  fn setPassword(old: string, new: string)
+    System.setPassword(old, new)
+    SettingsService.log.info("password change asked for")
+  end
+
+  fn setInputVolume(volume: integer)
+    System.setInputVolume(volume)
+  end
+
+  fn setInputMuted(muted: boolean)
+    System.setInputMuted(muted)
+  end
+
+  fn setOutput(card: integer)
+    System.setOutput(card)
+  end
+
+  fn bluetooth(action: string, address: string)
+    System.askBluetooth(action, address)
+  end
+
+  fn syncClock()
+    System.syncClock()
+  end
+
+  -- An app saying what it is: known from then on by the process that
+  -- said it. Text from another process, so kept to a sensible length.
+  fn describeApp(name: string, version: string, about: string, settings: boolean)
+    local pid = Looper.callerPid()
+    if pid == nil or String.trim(name) == "" then
+      return
+    end
+    local info = AppInfo(
+      String.sub(String.trim(name), 1, 40),
+      String.sub(String.trim(version), 1, 24),
+      String.sub(String.trim(about), 1, 240),
+      settings
+    )
+    self.session.describe(pid!, info)
+  end
+
+  fn notify(title: string, body: string)
+    local heading = String.sub(String.trim(title), 1, 60)
+    if heading != "" then
+      self.session.notify(heading, String.sub(String.trim(body), 1, 160))
+    end
+  end
+
+  -- One app asking for another: a file browser for the editor, with the
+  -- file to open.
+  fn launch(name: string, arguments: table<string>) -> boolean
+    return Launcher.startNamed(name, arguments)
   end
 
   -- The first line of `path`, or "" where there is no such file (on a

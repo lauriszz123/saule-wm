@@ -1,0 +1,113 @@
+-- The Dock, along the foot of the screen as on a Mac: the apps there
+-- are, each with a dot under it while it has a window open, and after a
+-- divider the windows that were minimised.
+--
+--          ┌───────────────────────────────────────────┐
+--          │  [F]  [E]  [T]  [S]   │   [E] notes.txt   │
+--          │   •         •                             │
+--          └───────────────────────────────────────────┘
+--
+-- Clicking an app brings its window forward, or starts it; clicking it
+-- again goes on to its next window. Clicking a minimised window brings
+-- it back.
+
+from uikit import *
+from wm import Client, Program, Session
+from Palette import Palette
+from AppIcon import AppIcon
+
+export class Dock extends View
+  session: Session
+
+  -- The strip the Dock stands in, and an icon's size.
+  static height: float = 62.0
+  static icon: float = 38.0
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local items: table<View> = {}
+
+    for program in session.programs() do
+      -- About This System is the sun's menu's, not an app to keep at
+      -- hand.
+      if String.lower(program.name) != "about" then
+        Table.insert(items, Dock.app(session, program))
+      end
+    end
+
+    local kept = session.minimised()
+    if #kept > 0 then
+      local line = Spacer().frame(width: 1.0, height: Dock.icon).background(
+        Palette.launcherOutline
+      )
+      Table.insert(items, line.padding(insets: EdgeInsets.symmetric(horizontal: 4.0)))
+      for client in kept do
+        Table.insert(items, Dock.window(session, client))
+      end
+    end
+
+    local row = HStack(
+      alignment: StackAlignment.Leading,
+      sizing: StackSize.Fit,
+      spacing: 8.0,
+      children: items
+    )
+    local inset = EdgeInsets.only(left: 12.0, top: 7.0, right: 12.0, bottom: 3.0)
+    local glass = Backdrop(
+      child: row.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 16.0
+    )
+    local pill = glass.background(nil, 16.0, border: Palette.launcherOutline)
+    return VStack(alignment: StackAlignment.Center) do
+      Spacer()
+      show(pill)
+      Spacer().frame(height: 5.0)
+    end
+  end
+
+  -- One app: its icon, and a dot under it while it has a window.
+  static fn app(session: Session, program: Program) -> View
+    local running = #session.windowsOf(program.name) > 0
+    local dot: Color? = nil
+    if running then
+      dot = Palette.text
+    end
+    local size = Dock.icon
+    local tile = VStack(alignment: StackAlignment.Center, spacing: 3.0) do
+      AppIcon(program.name).frame(width: size, height: size)
+      Spacer().frame(width: 4.0, height: 4.0).background(dot, 2.0)
+    end
+    local open = fn()
+      session.dockOpen(program)
+    end
+    return GestureArea(child: tile, onTap: open, key: "app:" .. program.path)
+  end
+
+  -- One minimised window: its app's icon, a little smaller, and the
+  -- start of its title beside it.
+  static fn window(session: Session, client: Client) -> View
+    local size = Dock.icon
+    local name = Text(client.title).font(11.0).foregroundStyle(Palette.dimText)
+    local row = HStack(alignment: StackAlignment.Center, spacing: 6.0) do
+      AppIcon(session.appName(client)).frame(width: size * 0.74, height: size * 0.74)
+      name.lineLimit(1).frame(width: 84.0)
+    end
+    local inset = EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0)
+    local tile = row.padding(insets: inset).background(Palette.workspace, 9.0)
+    local back = fn()
+      session.restore(client)
+    end
+    return GestureArea(
+      child: tile.frame(height: size),
+      onTap: back,
+      key: "window:" .. client.id
+    )
+  end
+end

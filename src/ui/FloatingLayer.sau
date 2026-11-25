@@ -17,6 +17,9 @@ export class FloatingLayer extends View
   -- How much of a window's title bar always stays on screen.
   static reach: float = 80.0
 
+  -- How many windows have been placed: where the next one goes.
+  static local opened: integer = 0
+
   clients: table<Client>
   children: table<View>
 
@@ -93,8 +96,12 @@ export class FloatingLayer extends View
     if not client.placed then
       client.placed = true
       local spare = room.height - client.height - bar
-      client.x = (room.width - client.width) / 2.0
-      client.y = spare * 0.4
+      -- Each new window a step down and to the right of the last, so
+      -- one opened over another leaves the other's title bar to grab.
+      local step = ((FloatingLayer.opened % 6) as float) * 26.0
+      FloatingLayer.opened += 1
+      client.x = (room.width - client.width) / 2.0 + step
+      client.y = spare * 0.4 + step
     end
 
     local reach = Math.min(FloatingLayer.reach, client.width)

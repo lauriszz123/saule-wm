@@ -1,0 +1,69 @@
+-- Notifications: cards of frosted glass at the top right of the screen,
+-- under the bar, each for a few seconds, as a Mac shows them. The newest
+-- is at the top; clicking one sends it away.
+
+from uikit import *
+from wm import Notice, Session
+from Palette import Palette
+
+export class Notices extends View
+  session: Session
+
+  static width: float = 300.0
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local cards: table<View> = {}
+    for i = #session.notices, 1, -1 do
+      Table.insert(cards, Notices.card(session, session.notices[i]))
+    end
+    local stack = VStack(
+      alignment: StackAlignment.Fill,
+      sizing: StackSize.Fit,
+      spacing: 8.0,
+      children: cards
+    )
+    local column = VStack(alignment: StackAlignment.Fill) do
+      Spacer().frame(height: Palette.barHeight + 8.0)
+      show(stack)
+      Spacer()
+    end
+    return HStack(alignment: StackAlignment.Fill) do
+      Spacer()
+      column.frame(width: Notices.width)
+      Spacer().frame(width: 10.0)
+    end
+  end
+
+  static fn card(session: Session, notice: Notice) -> View
+    local title = Text(notice.title).font(13.0).foregroundStyle(Palette.text)
+    local parts: table<View> = {title.lineLimit(1)}
+    if notice.body != "" then
+      local body = Text(notice.body).font(12.0).foregroundStyle(Palette.dimText)
+      Table.insert(parts, body.lineLimit(3))
+    end
+    local words = VStack(
+      alignment: StackAlignment.Leading,
+      sizing: StackSize.Fit,
+      spacing: 3.0,
+      children: parts
+    )
+    local inset = EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0)
+    local glass = Backdrop(
+      child: words.padding(insets: inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 12.0
+    )
+    local shown = glass.background(nil, 12.0, border: Palette.launcherOutline)
+    local away = fn()
+      session.dismiss(notice)
+    end
+    return GestureArea(child: shown, onTap: away)
+  end
+end

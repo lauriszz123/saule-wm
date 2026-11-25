@@ -1,0 +1,30 @@
+-- What an app says of itself (wmapi's `describeApp`), for the menu the
+-- bar shows under its name; and a notification, shown for a few seconds.
+
+export class AppInfo
+  name: string
+  version: string
+  about: string
+  -- It has settings to open: it is sent Ctrl+comma to open them.
+  settings: boolean
+
+  fn init(name: string, version: string, about: string, settings: boolean)
+    self.name = name
+    self.version = version
+    self.about = about
+    self.settings = settings
+  end
+end
+
+export class Notice
+  title: string
+  body: string
+  -- When it was shown, by `Os.clock`.
+  at: float
+
+  fn init(title: string, body: string, at: float)
+    self.title = title
+    self.body = body
+    self.at = at
+  end
+end

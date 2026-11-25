@@ -15,6 +15,7 @@ export from SetupTile import *
 export from SetupAssistant import *
 export from StatusGlyph import *
 export from StatusItems import *
+export from AppButton import *
 export from StatusBar import *
 export from ClientView import *
 export from ClientWindow import *
@@ -31,5 +32,11 @@ export from SearchGlyph import *
 export from LauncherRow import *
 export from LauncherView import *
 export from StatusPanel import *
+export from Hud import *
+export from AppIcon import *
+export from Dock import *
+export from Notices import *
+export from AppMenu import *
+export from AppAbout import *
 export from Transition import *
 export from Desktop import *
