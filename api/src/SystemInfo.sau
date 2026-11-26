@@ -9,6 +9,13 @@ export class SystemInfo
   saule: string = ""
   wm: string = ""
 
+  -- The operating system it runs on, as it names itself, and its version:
+  -- "macOS" "26.2", "Windows 11 Pro" "10.0.26100", "Ubuntu" "24.04.1 LTS
+  -- (Noble Numbat), in WSL on Windows 11 Pro". Empty on Saule Linux, which
+  -- is said as itself.
+  system: string = ""
+  systemVersion: string = ""
+
   -- What the computer is, as its firmware names it, e.g. "HP Mini
   -- 210-1001SA".
   machine: string = ""
@@ -23,9 +30,9 @@ export class SystemInfo
   graphics: string = ""
 
   -- Every graphics chip, each with its driver and whether the screen is
-  -- on it (Saule Linux; empty elsewhere). And what the screen is drawn
-  -- by: a chip, as it names itself, or "" when the processor does the
-  -- drawing because no chip has a driver that can.
+  -- on it, as the system lists them. And what the screen is drawn by: a
+  -- chip, as it names itself, or "" when the processor does the drawing;
+  -- `rendererProblem` then says why.
   cards: table<GraphicsDevice> = {}
   renderer: string = ""
 

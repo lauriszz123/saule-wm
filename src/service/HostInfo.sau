@@ -1,0 +1,353 @@
+-- What the computer is, for About This System, on whatever system the
+-- window manager runs on. Linux keeps it in files that SettingsService reads
+-- (`/proc`, `/sys`); that is Saule Linux, a Linux desktop, and the Linux of
+-- WSL. The rest is asked of the system itself, the way it tells it:
+--
+--   macOS     `sysctl` (the model, processor, memory, kernel, version, when
+--             it started) and `vm_stat` (the memory in use)
+--   Windows   PowerShell: the computer, processor and operating system as
+--             Windows lists them (CIM's Win32_ComputerSystem, _Processor,
+--             _OperatingSystem)
+--   WSL       Linux's files for what is Linux's, and Windows, through
+--             `powershell.exe`, for the computer Linux can't see: its
+--             model, and which Windows it is
+--
+-- And on Linux, which distribution it is, from `/etc/os-release`.
+--
+-- Starting a program takes a moment the window manager, which draws the
+-- screen, must not wait for; PowerShell takes most of a second. So the
+-- system is asked beside it (`ask`), started as the window manager starts
+-- and again when the answer is `every` old and About is looking, and the
+-- last answer is the one used. Each answer is put in the same words
+-- (`model`, `processor`, …) whichever system gave it.
+
+from "wmapi" import SystemInfo
+
+export class HostInfo
+  -- How old an answer may be before it is asked again, in milliseconds:
+  -- the memory in use changes; the rest does not.
+  static every: integer = 5000
+
+  -- What macOS is asked, by `sh`: one line "name: value" for each, then
+  -- `vm_stat`'s pages.
+  static macAsk: string = String.join(
+    " ",
+    {
+      "sysctl hw.model machdep.cpu.brand_string hw.ncpu hw.memsize",
+      "kern.osrelease kern.osproductversion kern.boottime;",
+      "vm_stat",
+    }
+  )
+
+  -- What Windows is asked, by PowerShell: one line "name<tab>value" for
+  -- each. The memory is in kB, as Linux says it; the start as Unix time.
+  static windowsAsk: string = String.join(
+    " ",
+    {
+      "$t = [char]9;",
+      "$c = Get-CimInstance Win32_ComputerSystem;",
+      "$p = Get-CimInstance Win32_Processor | Select-Object -First 1;",
+      "$o = Get-CimInstance Win32_OperatingSystem;",
+      "'maker' + $t + $c.Manufacturer;",
+      "'model' + $t + $c.Model;",
+      "'processor' + $t + $p.Name;",
+      "'threads' + $t + $c.NumberOfLogicalProcessors;",
+      "'memory' + $t + $o.TotalVisibleMemorySize;",
+      "'free' + $t + $o.FreePhysicalMemory;",
+      "'system' + $t + $o.Caption;",
+      "'version' + $t + $o.Version;",
+      "'booted' + $t",
+      "+ [DateTimeOffset]::new($o.LastBootUpTime).ToUnixTimeSeconds()",
+    }
+  )
+
+  -- The query while it runs, what it has printed so far, the last answer
+  -- in common words, and when it came (0: never).
+  static local query: Process? = nil
+  static local output: string = ""
+  static local values: table<string, string> = {}
+  static local answeredAt: integer = 0
+
+  -- Which system is asked: "macos", "windows" (Windows itself, or the one
+  -- WSL runs on), or "" where Linux's own files say everything.
+  static fn kind() -> string
+    match Os.platform()
+      case OsPlatform.Macos then
+        return "macos"
+      case OsPlatform.Windows then
+        return "windows"
+      case _ then nil
+    end
+    if HostInfo.wsl() then
+      return "windows"
+    end
+    return ""
+  end
+
+  -- Linux running under Windows: its interop, or the GPU Windows lends it.
+  static fn wsl() -> boolean
+    return Os.getenv("WSL_DISTRO_NAME") != nil or Os.exists("/dev/dxg")
+  end
+
+  -- Ask, unless it is being asked already or there is nobody to ask.
+  static fn ask() -> nil
+    if HostInfo.query != nil then
+      return
+    end
+    local kind = HostInfo.kind()
+    if kind == "macos" then
+      HostInfo.output = ""
+      HostInfo.query = Os.spawn("sh", {"-c", HostInfo.macAsk})
+    elseif kind == "windows" then
+      HostInfo.output = ""
+      local args = {
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        HostInfo.windowsAsk,
+      }
+      HostInfo.query = Os.spawn("powershell.exe", args)
+    end
+  end
+
+  -- Put into `info` what it is missing and the system has said; ask again
+  -- when the answer is old.
+  static fn fill(info: SystemInfo) -> nil
+    HostInfo.collect()
+    local age = Os.timeMillis() - HostInfo.answeredAt
+    if HostInfo.answeredAt == 0 or age >= HostInfo.every then
+      HostInfo.ask()
+    end
+    HostInfo.put(info, HostInfo.values)
+    HostInfo.putRelease(info, HostInfo.osRelease("/etc/os-release"))
+  end
+
+  -- `values`, in common words, into what `info` is missing.
+  static fn put(info: SystemInfo, values: table<string, string>) -> nil
+    if info.machine == "" then
+      info.machine = values["model"] ?? ""
+    end
+    if info.processor == "" then
+      info.processor = values["processor"] ?? ""
+      info.cores = (values["threads"] as integer?) ?? 0
+    end
+    if info.memory == 0 then
+      info.memory = (values["memory"] as integer?) ?? 0
+    end
+    if info.memoryUsed == 0 then
+      info.memoryUsed = (values["used"] as integer?) ?? 0
+    end
+    if info.kernel == "" then
+      info.kernel = values["kernel"] ?? ""
+    end
+    if info.uptime == 0 then
+      local booted = (values["booted"] as integer?) ?? 0
+      if booted > 0 then
+        info.uptime = Math.max(Os.time() - booted, 0)
+      end
+    end
+    if info.system == "" then
+      info.system = values["system"] ?? ""
+      info.systemVersion = values["version"] ?? ""
+    end
+  end
+
+  -- A Linux distribution, from what `/etc/os-release` says (`release`);
+  -- under WSL, with the Windows it runs on.
+  static fn putRelease(info: SystemInfo, release: table<string, string>) -> nil
+    local name = release["NAME"] ?? ""
+    if name == "" then
+      return
+    end
+    local windows = HostInfo.values["system"] ?? ""
+    info.system = name
+    info.systemVersion = release["VERSION"] ?? release["VERSION_ID"] ?? ""
+    if HostInfo.wsl() and windows != "" then
+      info.systemVersion = info.systemVersion .. ", in WSL on " .. windows
+    end
+  end
+
+  -- Take what the query has printed; once it has finished and all of it
+  -- has been read, that is the answer. A program can end with the last of
+  -- what it printed still on its way, so both, not just finished. One that
+  -- failed or said nothing changes nothing: the last answer stands.
+  static fn collect() -> nil
+    local query = HostInfo.query
+    if query == nil then
+      return
+    end
+    HostInfo.output ..= Bytes.toString(query!.read()) ?? ""
+    local code = query!.poll()
+    if code == nil or not query!.atEof() then
+      return
+    end
+    HostInfo.query = nil
+    HostInfo.answeredAt = Os.timeMillis()
+    local said: table<string, string> = {}
+    if HostInfo.kind() == "macos" then
+      said = HostInfo.fromMac(HostInfo.output)
+    else
+      said = HostInfo.fromWindows(HostInfo.output)
+    end
+    if said["processor"] != nil or said["model"] != nil then
+      HostInfo.values = said
+    end
+  end
+
+  -- macOS's answer in common words.
+  static fn fromMac(text: string) -> table<string, string>
+    local raw = HostInfo.pairs(text, ":")
+    local out: table<string, string> = {}
+    HostInfo.copy(raw, "hw.model", out, "model")
+    HostInfo.copy(raw, "machdep.cpu.brand_string", out, "processor")
+    HostInfo.copy(raw, "hw.ncpu", out, "threads")
+    local bytes = (raw["hw.memsize"] as integer?) ?? 0
+    if bytes > 0 then
+      out["memory"] = "" .. Math.floor((bytes as float) / 1024.0)
+    end
+    if raw["kern.osrelease"] != nil then
+      out["kernel"] = "Darwin " .. raw["kern.osrelease"]!
+    end
+    out["system"] = "macOS"
+    HostInfo.copy(raw, "kern.osproductversion", out, "version")
+    local booted = HostInfo.bootTime(raw["kern.boottime"] ?? "")
+    if booted > 0 then
+      out["booted"] = "" .. booted
+    end
+
+    -- In use, as Activity Monitor counts it: what programs hold, what
+    -- the system has pinned down, and what is held compressed.
+    local page = HostInfo.pageSize(text)
+    local pages = 0
+    for name in {
+      "Pages active",
+      "Pages wired down",
+      "Pages occupied by compressor",
+    } do
+      pages += HostInfo.count(raw[name] ?? "")
+    end
+    if page > 0 and pages > 0 then
+      out["used"] = "" .. Math.floor(
+        (pages as float) * (page as float) / 1024.0
+      )
+    end
+    return out
+  end
+
+  -- Windows' answer in common words.
+  static fn fromWindows(text: string) -> table<string, string>
+    local raw = HostInfo.pairs(text, "\t")
+    local out: table<string, string> = {}
+    -- A board that says nothing of itself ("System Product Name", "To Be
+    -- Filled By O.E.M.") is named by its maker, as Linux's DMI is.
+    local model = raw["model"] ?? ""
+    local placeholder = String.contains(model, "O.E.M")
+    placeholder = placeholder or String.contains(model, "System Product Name")
+    if model == "" or placeholder then
+      model = raw["maker"] ?? ""
+    end
+    if model != "" then
+      out["model"] = model
+    end
+    HostInfo.copy(raw, "processor", out, "processor")
+    HostInfo.copy(raw, "threads", out, "threads")
+    HostInfo.copy(raw, "memory", out, "memory")
+    local all = (raw["memory"] as integer?) ?? 0
+    local free = (raw["free"] as integer?) ?? -1
+    if all > 0 and free >= 0 then
+      out["used"] = "" .. Math.max(all - free, 0)
+    end
+    local system = raw["system"] ?? ""
+    if String.starts(system, "Microsoft ") then
+      system = String.sub(system, 11)
+    end
+    if system != "" then
+      out["system"] = system
+    end
+    HostInfo.copy(raw, "version", out, "version")
+    if raw["version"] != nil then
+      out["kernel"] = "Windows NT " .. raw["version"]!
+    end
+    HostInfo.copy(raw, "booted", out, "booted")
+    return out
+  end
+
+  -- Lines "name<separator>value" as a table by name, each trimmed, with
+  -- the full stop `vm_stat` ends its numbers with left on: `count` takes
+  -- the digits.
+  static fn pairs(text: string, separator: string) -> table<string, string>
+    local found: table<string, string> = {}
+    for raw in String.split(text, "\n") do
+      local line = String.trim(raw)
+      local start, finish = String.find(line, separator)
+      if start != nil and finish != nil then
+        local name = String.trim(String.sub(line, 1, start! - 1))
+        local value = String.trim(String.sub(line, finish! + 1))
+        if name != "" and value != "" then
+          found[name] = value
+        end
+      end
+    end
+    return found
+  end
+
+  -- `source[name]`, when there is one, as `into[key]`.
+  static fn copy(
+    source: table<string, string>,
+    name: string,
+    into: table<string, string>,
+    key: string
+  ) -> nil
+    local value = source[name] ?? ""
+    if value != "" then
+      into[key] = value
+    end
+  end
+
+  -- The digits of "251846." as a number; 0 when there are none.
+  static fn count(said: string) -> integer
+    return (String.replace(String.trim(said), ".", "") as integer?) ?? 0
+  end
+
+  -- `vm_stat`'s "(page size of 16384 bytes)", in bytes; 0 without it.
+  static fn pageSize(text: string) -> integer
+    local _, finish = String.find(text, "page size of ")
+    if finish == nil then
+      return 0
+    end
+    local rest = String.sub(text, finish! + 1)
+    return (String.split(rest, " ")[1] as integer?) ?? 0
+  end
+
+  -- The second the computer started, from `kern.boottime`'s "{ sec =
+  -- 1794559668, usec = 960830 } Fri Nov 13 …": 0 when it can't be read.
+  static fn bootTime(said: string) -> integer
+    local _, finish = String.find(said, "sec = ")
+    if finish == nil then
+      return 0
+    end
+    local rest = String.sub(said, finish! + 1)
+    return (String.trim(String.split(rest, ",")[1] ?? "") as integer?) ?? 0
+  end
+
+  -- `/etc/os-release` as a table: NAME="Ubuntu", VERSION="24.04.1 LTS
+  -- (Noble Numbat)", … without the quotes. Empty without the file: Saule
+  -- Linux's image has none, and macOS and Windows aren't Linux.
+  static fn osRelease(path: string) -> table<string, string>
+    local found: table<string, string> = {}
+    local file = Io.open(path, IoMode.Read)
+    if file == nil then
+      return found
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+    for name, value in HostInfo.pairs(text, "=") do
+      if String.starts(value, "\"") and String.ends(value, "\"") then
+        found[name] = String.sub(value, 2, String.len(value) - 1)
+      else
+        found[name] = value
+      end
+    end
+    return found
+  end
+end

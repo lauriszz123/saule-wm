@@ -1,21 +1,27 @@
--- The graphics hardware's name, for About This System: "Intel GMA 3150",
--- "AMD Radeon RX 6700 XT". Found the way each system tells it:
+-- The graphics chips, for About This System and Settings' Displays pane:
+-- each one's name ("Intel GMA 3150", "Apple M1"), its driver, and which
+-- the screen is on. Found the way each system tells it:
 --
---   Linux, Saule Linux   the kernel's graphics devices in /sys/class/drm,
---                        named from the PCI ids: a few known here, the
---                        rest from the pci.ids list where the system has
---                        one, else by maker and driver ("Intel (i915)")
+--   Linux, Saule Linux   the PCI devices that are display controllers,
+--                        named from their ids: a few known here, the rest
+--                        from the pci.ids list where the system has one,
+--                        else by maker; each with the kernel's driver for
+--                        it, or none
 --   Windows, and WSL     Windows' own list of video controllers, asked
---                        through PowerShell (WSL's Linux sees no card,
---                        only a virtual one)
---   macOS                system_profiler's "Chipset Model"
+--                        through PowerShell (WSL's Linux sees no chip, only
+--                        the one Windows lends it): each with its driver's
+--                        version, or none where Windows shows its Basic
+--                        Display Adapter
+--   macOS                system_profiler's list, with each chip's Metal
+--                        support
 --
 -- Asking Windows or macOS takes a moment, so it's asked once, as the
 -- window manager starts (`start`), and the answer read when About wants
--- it: empty until it has come.
+-- it: the PCI bus's (nothing, there) until it has come.
 
 from "wmapi" import GraphicsDevice
 from log import Logger
+from HostInfo import HostInfo
 
 export class GraphicsCard
   static local log: Logger = Logger("wm.settings")
@@ -45,92 +51,169 @@ export class GraphicsCard
   }
 
   -- Windows' or macOS's answer: the query while it runs, what it has
-  -- printed so far, and the names once it has finished.
+  -- printed so far, and the chips it listed once it has finished.
   static local query: Process? = nil
   static local output: string = ""
-  static local answer: string = ""
+  static local listed: table<GraphicsDevice> = {}
 
-  -- The chips, once they have been looked for.
+  -- The chips on the PCI bus, once they have been looked for.
   static local found: table<GraphicsDevice>? = nil
 
   -- The names last written to the log.
   static local logged: string = ""
 
-  -- Ask the system that is slow to answer, if it is one of those.
+  -- What Windows is asked, by PowerShell: a line for each video controller,
+  -- its name, its driver's version and how wide the screen it drives is (0
+  -- for none), a tab between them.
+  static windowsAsk: string = String.join(
+    " ",
+    {
+      "$t = [char]9;",
+      "Get-CimInstance Win32_VideoController | ForEach-Object {",
+      "$_.Name + $t + $_.DriverVersion + $t + $_.CurrentHorizontalResolution",
+      "}",
+    }
+  )
+
+  -- Ask the system that is slow to answer, if it is one of those: macOS,
+  -- and Windows (WSL's Linux sees no chip, only the one Windows lends it).
   static fn start() -> nil
     if GraphicsCard.query != nil then
       return
     end
-    local windows = Os.platform() == OsPlatform.Windows or Os.exists("/dev/dxg")
-    if windows then
-      local ask = "(Get-CimInstance Win32_VideoController).Name"
-      local args = {"-NoProfile", "-NonInteractive", "-Command", ask}
+    local kind = HostInfo.kind()
+    if kind == "windows" then
+      local args = {
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        GraphicsCard.windowsAsk,
+      }
       GraphicsCard.query = Os.spawn("powershell.exe", args)
-    elseif Os.platform() == OsPlatform.Macos then
+    elseif kind == "macos" then
       GraphicsCard.query = Os.spawn("system_profiler", {"SPDisplaysDataType"})
     end
   end
 
-  -- The cards' names, joined: "" when none could be found (yet).
+  -- The chips' names, joined: "" when none could be found (yet).
   static fn name() -> string
-    local names = GraphicsCard.fromQuery()
-    if names == "" then
-      names = GraphicsCard.fromKernel()
+    local names: table<string> = {}
+    for card in GraphicsCard.cards() do
+      Table.insert(names, card.name)
+    end
+    local said = Table.concat(names, ", ")
+    if said == "" and Os.exists("/sys/class/drm/card0") then
+      said = "Firmware framebuffer (no driver)"
     end
     -- Asked every second while About is open: said when it changes.
-    if names != GraphicsCard.logged then
-      GraphicsCard.logged = names
-      GraphicsCard.log.debug("graphics", {name: names})
+    if said != GraphicsCard.logged then
+      GraphicsCard.logged = said
+      GraphicsCard.log.debug("graphics", {name: said})
     end
-    return names
+    return said
   end
 
-  -- Windows' or macOS's answer, once the query has finished.
-  static fn fromQuery() -> string
+  -- Every graphics chip, as the system lists them: macOS's and Windows'
+  -- own lists once they have answered, else Linux's PCI bus. The one the
+  -- screen is on comes first.
+  static fn cards() -> table<GraphicsDevice>
+    GraphicsCard.collect()
+    if #GraphicsCard.listed > 0 then
+      return GraphicsCard.listed
+    end
+    return GraphicsCard.onBus()
+  end
+
+  -- Take what the query has printed; once it has finished and all of it
+  -- has been read, the chips it listed. A program can end with the last
+  -- of what it printed still on its way, so both, not just finished.
+  static fn collect() -> nil
     local query = GraphicsCard.query
     if query == nil then
-      return GraphicsCard.answer
+      return
     end
     GraphicsCard.output ..= Bytes.toString(query!.read()) ?? ""
-    -- Finished and all of it read: a program can end with the last of
-    -- what it printed still on its way.
     if query!.poll() == nil or not query!.atEof() then
-      return ""
+      return
     end
     GraphicsCard.query = nil
-    GraphicsCard.answer = GraphicsCard.parse(GraphicsCard.output)
-    return GraphicsCard.answer
+    if HostInfo.kind() == "macos" then
+      GraphicsCard.listed = GraphicsCard.fromMac(GraphicsCard.output)
+    else
+      GraphicsCard.listed = GraphicsCard.fromWindows(GraphicsCard.output)
+    end
   end
 
-  -- PowerShell prints one name a line; system_profiler a "Chipset Model:"
-  -- line a card. Windows' virtual screens (Remote Desktop's, a virtual
-  -- monitor's) aren't cards.
-  static fn parse(text: string) -> string
-    local names: table<string> = {}
+  -- system_profiler's list: a chip from each "Chipset Model:" line, its
+  -- Metal support as its driver (macOS drives every chip it lists), and
+  -- the one whose displays include the main one drives the screen.
+  static fn fromMac(text: string) -> table<GraphicsDevice>
+    local chips: table<GraphicsDevice> = {}
+    local current: GraphicsDevice? = nil
     for raw in String.split(text, "\n") do
       local line = String.trim(raw)
-      if String.contains(line, "Chipset Model:") then
-        line = String.trim(String.split(line, ":")[2] ?? "")
-      elseif String.contains(line, ":") then
-        line = ""
-      end
-      local virtual = false
-      for word in {"Virtual", "Remote", "Basic Display"} do
-        if String.contains(line, word) then
-          virtual = true
-        end
-      end
-      if line != "" and not virtual then
-        Table.insert(names, GraphicsCard.tidy(line))
+      local value = String.trim(String.split(line, ":")[2] ?? "")
+      if String.starts(line, "Chipset Model:") then
+        local chip = GraphicsDevice()
+        chip.name = GraphicsCard.tidy(value)
+        chip.driver = "macOS"
+        Table.insert(chips, chip)
+        current = chip
+      elseif current != nil and String.starts(line, "Metal") then
+        current!.driver = "macOS, " .. value
+      elseif current != nil and line == "Main Display: Yes" then
+        current!.primary = true
       end
     end
-    return Table.concat(names, ", ")
+    return GraphicsCard.primaryFirst(chips)
   end
 
-  -- Every graphics chip the computer has, whether or not anything drives
-  -- it: the PCI devices that say they are display controllers. The one
-  -- the screen is on comes first.
-  static fn cards() -> table<GraphicsDevice>
+  -- PowerShell's lines, "name<tab>driver version<tab>screen width". A
+  -- remote session's or a virtual monitor's adapter is no chip. Windows'
+  -- own stand-in, the Basic Display Adapter, is listed with no driver:
+  -- it is what a chip shows as when Windows has no driver for it, and the
+  -- screen is drawn without one, which is worth seeing.
+  static fn fromWindows(text: string) -> table<GraphicsDevice>
+    local chips: table<GraphicsDevice> = {}
+    local driving = false
+    for raw in String.split(text, "\n") do
+      local fields = String.split(String.trim(raw), "\t")
+      local name = GraphicsCard.tidy(fields[1] ?? "")
+      local remote = String.contains(name, "Remote")
+      local virtual = String.contains(name, "Virtual")
+      if name != "" and not remote and not virtual then
+        local chip = GraphicsDevice()
+        chip.name = name
+        if not String.contains(name, "Basic Display") then
+          chip.driver = String.trim(fields[2] ?? "")
+        end
+        -- The first that drives a screen is the one it is on.
+        local width = (String.trim(fields[3] ?? "") as integer?) ?? 0
+        chip.primary = width > 0 and not driving
+        driving = driving or chip.primary
+        Table.insert(chips, chip)
+      end
+    end
+    return GraphicsCard.primaryFirst(chips)
+  end
+
+  -- `chips`, the one the screen is on first.
+  static fn primaryFirst(chips: table<GraphicsDevice>) -> table<GraphicsDevice>
+    local ordered: table<GraphicsDevice> = {}
+    for chip in chips do
+      if chip.primary then
+        Table.insert(ordered, chip, 1)
+      else
+        Table.insert(ordered, chip)
+      end
+    end
+    return ordered
+  end
+
+  -- Every graphics chip on the PCI bus, whether or not anything drives
+  -- it: the devices that say they are display controllers. The one the
+  -- screen is on comes first.
+  static fn onBus() -> table<GraphicsDevice>
     -- Looked for once: a chip is not plugged in while the system runs,
     -- and naming one reads the whole list of names.
     if GraphicsCard.found != nil then
@@ -167,19 +250,6 @@ export class GraphicsCard
       end
     end
     return found
-  end
-
-  -- The cards' names, joined; a screen the firmware set up with no card
-  -- found at all says so, rather than nothing.
-  static fn fromKernel() -> string
-    local names: table<string> = {}
-    for card in GraphicsCard.cards() do
-      Table.insert(names, card.name)
-    end
-    if #names == 0 and Os.exists("/sys/class/drm/card0") then
-      return "Firmware framebuffer (no driver)"
-    end
-    return Table.concat(names, ", ")
   end
 
   -- The kernel's driver for the device in `device`, or "".

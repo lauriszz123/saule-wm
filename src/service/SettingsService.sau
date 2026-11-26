@@ -16,6 +16,7 @@ from wm import AppInfo, Hardware, Keymap, Launcher, Layouts, Machine, Pointer, S
 from ui import Palette
 from log import Logger
 from GraphicsCard import GraphicsCard
+from HostInfo import HostInfo
 from Preferences import Preferences
 from Storage import Storage
 
@@ -33,6 +34,7 @@ export class SettingsService implements WmSettings
   -- first) leaves this one without Settings rather than without windows.
   static fn publish(session: Session) -> nil
     GraphicsCard.start()
+    HostInfo.ask()
     -- Find the disks now, beside everything else, so the answer is there
     -- when About or Settings first asks; and each frame, save settings that
     -- have settled and take in what `df` has said.
@@ -186,6 +188,8 @@ export class SettingsService implements WmSettings
     info.rendererProblem = Graphics.getRendererProblem()
     SettingsService.memory(info)
     info.uptime = SettingsService.uptime()
+    -- What those files didn't say, from the system it runs on.
+    HostInfo.fill(info)
     -- The screen's own pixels: its resolution, whatever size things are
     -- drawn at on it.
     local w, h = Window.getSize()

@@ -2,6 +2,7 @@
 -- Settings shows and changes.
 
 export from GraphicsCard import *
+export from HostInfo import *
 export from Storage import *
 export from Preferences import *
 export from SettingsService import *
