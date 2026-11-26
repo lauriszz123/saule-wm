@@ -31,6 +31,16 @@ SAULE_APPS=../saule-linux/build/apps saule run .
 
 An app given after the `.` starts at once: `saule run . path/to/app`.
 
+On Saule Linux the window manager doesn't start apps itself. It runs as
+the account that draws the screen and reads the keyboard, and an app it
+started would have the same reach. It asks init, which starts the app as
+the person's account (`Launcher`, and saule-linux's
+`init/src/launcher.rs`): `SAULE_LAUNCHER` names the folder it asks in,
+and `SAULE_PERSON` and `SAULE_PERSON_HOME` say whose computer it is and
+where their files are, for the account's name in Settings and a
+screenshot's place in Pictures. Nested on a desktop none of them is set,
+and apps are its children.
+
 The window manager's shortcuts are held with its key, "Mod". On Saule Linux
 that is Super, used as a Mac uses Command (Super+Space opens the launcher,
 Ctrl+Super+Q locks, Alt+Super+Esc force quits). Nested in another desktop,
@@ -78,6 +88,18 @@ answer. With no password a click or Enter unlocks.
 
 `SAULE_WM_PASSWORD=word saule run .` stands in for a password anywhere,
 for working on the screen: it starts locked, and `word` unlocks it.
+
+Left alone, with no key pressed and the pointer still, the screen dims
+and, where there is a password, locks. Dimming is the backlight turned
+down to 30% of what it was, in steps over a second and a half, and what
+is on the screen blurred a little as that happens (`Dimmer`, with
+uikit's `Blur`); a key or the pointer brings both back, faster. Where
+there is no backlight a shade as dark is drawn in its place, and where
+the processor draws there is no blur. After how long, how dim, and
+whether to blur are chosen in Settings → Displays: two minutes to dim
+and five to lock unless changed, or never. On Saule Linux's own screen
+only; nested, the other desktop does its own. `SAULE_WM_IDLE=5,10` makes
+it five seconds and ten, for working on it.
 
 ## Tiled or windowed, the Dock, and the app's menu
 

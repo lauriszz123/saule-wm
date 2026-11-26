@@ -22,6 +22,7 @@ from LockScreen import LockScreen
 from SetupAssistant import SetupAssistant
 from StatusPanel import StatusPanel
 from Hud import Hud
+from Dimmer import Dimmer
 from Dock import Dock
 from Notices import Notices
 from AppMenu import AppMenu
@@ -66,7 +67,20 @@ export class Desktop extends View
       if System.sleeps > slept and not self.session.locked then
         self.session.lock()
       end
+      -- Waking it is somebody being back, whatever woke it.
+      if System.sleeps > slept then
+        Activity.touch()
+      end
       el.markNeedsBuild()
+    end
+    -- Left alone, the screen dims and then locks (uikit's `Activity`
+    -- says for how long nothing was pressed or moved).
+    if self.session.leftAlone(Activity.idle()) then
+      el.markNeedsBuild()
+    end
+    -- Dimming comes and goes over a moment: drawn again while it moves.
+    if self.session.dimStep(dt) then
+      Repaint.request()
     end
     -- A password being checked has its answer, and what a key changed
     -- has been shown long enough.
@@ -159,6 +173,8 @@ export class Desktop extends View
     Table.insert(layers, Desktop.cover(Desktop.setup(session), "setup"))
     -- Over everything, the lock screen too: the volume keys work there.
     Table.insert(layers, Desktop.cover(Desktop.hud(session), "hud"))
+    -- And the shade of a screen left alone, over that.
+    Table.insert(layers, Dimmer(session, key: "dimmer"))
 
     local shortcuts = fn(e: KeyEvent) -> boolean
       return Desktop.shortcut(session, e)

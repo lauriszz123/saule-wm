@@ -95,6 +95,10 @@ export class SettingsService implements WmSettings
     options.tapToClick = Pointer.tapToClick
     options.tapAndDrag = Pointer.tapAndDrag
     options.trackpadInertia = Pointer.inertia
+    options.dimAfter = self.session.dimAfter
+    options.lockAfter = self.session.lockAfter
+    options.dimTo = self.session.dimTo
+    options.dimBlur = self.session.dimBlur
     options.pointerAcceleration = Pointer.acceleration
     options.keyboardLayouts = Layouts.written
     options.modKey = Keymap.chosenMod
@@ -154,6 +158,10 @@ export class SettingsService implements WmSettings
       options.trackpadInertia
     )
     Layouts.configure(options.keyboardLayouts)
+    self.session.dimAfter = Math.max(options.dimAfter, 0)
+    self.session.lockAfter = Math.max(options.lockAfter, 0)
+    self.session.dimTo = Math.clamp(options.dimTo, 5, 100)
+    self.session.dimBlur = options.dimBlur
 
     local split = Split.Horizontal
     if options.newWindows == "below" then
@@ -245,7 +253,9 @@ export class SettingsService implements WmSettings
     info.timeZone = Machine.zone()
     info.kept = Machine.kept()
     info.person = System.person
-    info.account = Os.getenv("USER") ?? ""
+    -- Whose machine it is: on Saule Linux not this process's own account,
+    -- which is the display server's.
+    info.account = Os.getenv("SAULE_PERSON") ?? Os.getenv("USER") ?? ""
     info.hasPassword = System.hasPassword
     info.passwordChanges = System.changes
     info.passwordChange = System.lastChange

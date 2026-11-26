@@ -1,0 +1,52 @@
+-- The screen dimmed, when the computer has been left alone: what is on
+-- it blurred a little, the lock screen too, and darker. It comes over a
+-- moment and lifts at a key or the pointer, faster.
+--
+-- The dark is the backlight's where there is one, which `Session` turns
+-- down in step (`Session.dimBacklight`). Where there is none (a
+-- desktop's monitor, a virtual machine's window) it is a shade drawn
+-- here, as dark as the backlight would have gone. The blur is uikit's
+-- (`Blur`), and is left out where the processor draws, which has none, or
+-- when Settings turns it off.
+--
+-- It takes no press and no key: what is under it is used as if it were
+-- not there. `Session.dimLevel` says how far down it is.
+
+import shine
+from uikit import *
+from wm import Session, System
+
+export class Dimmer extends View
+  session: Session
+
+  -- How far apart the pixels that mix are, at its most: enough that
+  -- nothing can be read, and what is where can still be told.
+  static blur: float = 14.0
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  fn paint(el: Element, at: float, top: float) -> nil
+    local level = self.session.dimLevel
+    if level <= 0.0 then
+      return
+    end
+    local w = el.size.width
+    local h = el.size.height
+    -- Faded in, at its full width from the start: a blur that grew
+    -- wider would shimmer as it came.
+    if self.session.dimBlur then
+      Blur.draw(at, top, w, h, Dimmer.blur, 0.0, level)
+    end
+    if not System.backlight then
+      Graphics.setColor(0.0, 0.0, 0.0, 1.0 - self.session.lightAt(level))
+      Graphics.rectangle("fill", at, top, w, h)
+    end
+  end
+end

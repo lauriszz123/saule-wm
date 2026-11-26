@@ -10,6 +10,23 @@
 -- folder, such as the one saule-linux builds its apps into:
 --
 --   SAULE_APPS=../saule-linux/build/apps saule run .
+--
+-- On Saule Linux the apps are not this process's to start. It is the
+-- account that draws the screen and reads the keyboard, and an app it
+-- started would be that account too, with the same reach. So it asks
+-- init, which starts the app as the person's account (saule-linux's
+-- `init/src/launcher.rs`): a line in a file dropped in
+-- `$SAULE_LAUNCHER/requests`,
+--
+--   launch  ID  PROGRAM  a:ARGUMENT…  e:NAME=VALUE…
+--   kill    PID
+--   forget  ID
+--
+-- with tabs between its parts, and init's answer read from
+-- `$SAULE_LAUNCHER/apps`: for each app asked for, its number here, its
+-- process, and `running`, `ended CODE` or `refused REASON`. What the app
+-- prints is init's to pass on. Where `SAULE_LAUNCHER` is not set (nested
+-- on a desktop), the apps are started from here, as children.
 
 from log import Logger
 from Program import Program
@@ -32,9 +49,54 @@ export class Launcher
   -- the system, since `takeFailed` last asked: their names.
   static local failed: table<string> = {}
 
+  -- Where init is asked to start apps: `SAULE_LAUNCHER`, on Saule Linux.
+  -- Nil anywhere else, where they are started from here.
+  static local asking: string? = Os.getenv("SAULE_LAUNCHER")
+
+  -- The apps init was asked for and has not said the end of, by the
+  -- number each was asked under; the last number given; and each
+  -- running one's number by its process.
+  static local askedFor: table<string, Program> = {}
+  static local lastAsked: integer = 0
+  static local numberOf: table<integer, string> = {}
+
+  -- When init's answer was last read, and how often it is, in
+  -- milliseconds: often while
+  -- an app is on its way, which a window may follow at once.
+  static local readAt: integer = 0
+
+  -- How many requests were dropped (each needs a name of its own), and
+  -- the apps ended here on purpose, by the number each was asked under.
+  static local sent: integer = 0
+  static local ended: table<string, boolean> = {}
+  static awaited: integer = 50
+  static settled: integer = 500
+
   -- The program the process `pid` was started as, if it was started here.
   static fn programOf(pid: integer) -> Program?
-    return Launcher.started[pid]
+    local known = Launcher.started[pid]
+    -- A window can be here before init's answer was read: read now.
+    if known == nil and Launcher.asking != nil and Launcher.waiting() then
+      Launcher.hear(Launcher.awaited)
+      known = Launcher.started[pid]
+    end
+    return known
+  end
+
+  -- Whether an app was asked for that init has not said is running.
+  static fn waiting() -> boolean
+    for id, program in Launcher.askedFor do
+      local running = false
+      for pid, number in Launcher.numberOf do
+        if number == id then
+          running = true
+        end
+      end
+      if not running then
+        return true
+      end
+    end
+    return false
   end
 
   -- Start `apps`, the ones the window manager was started with.
@@ -89,6 +151,9 @@ export class Launcher
   -- Start `program`, with `arguments` for it when another app asked for
   -- it to open something. False when it could not be started.
   static fn start(program: Program, arguments: table<string> = {}) -> boolean
+    if Launcher.asking != nil then
+      return Launcher.ask(program, arguments)
+    end
     local process = Os.spawn(program.path, arguments)
     if process == nil then
       Launcher.log.error("could not start", {path: program.path})
@@ -117,12 +182,173 @@ export class Launcher
     return false
   end
 
+  -- Ask init for `program`. True once asked: whether it started is in
+  -- init's answer, and one that didn't is among `takeFailed`'s.
+  static fn ask(program: Program, arguments: table<string>) -> boolean
+    Launcher.lastAsked += 1
+    local id = tostring(Launcher.lastAsked)
+    local parts = {"launch", id, Launcher.written(program.path)}
+    for argument in arguments do
+      Table.insert(parts, "a:" .. Launcher.written(argument))
+    end
+    -- What this process sets for the apps it starts, which one started
+    -- by init would not have: where the display server is (Shine's
+    -- `Compositor.start` names it) and the size everything is drawn at
+    -- (see `Session`). Init hands on what is named so.
+    for name in {"SAULE_DISPLAY", "SHINE_SCALE"} do
+      local value = Os.getenv(name)
+      if value != nil then
+        Table.insert(parts, "e:" .. name .. "=" .. Launcher.written(value!))
+      end
+    end
+    if not Launcher.send(String.join("\t", parts)) then
+      Launcher.log.error("could not ask for", {path: program.path})
+      return false
+    end
+    Launcher.askedFor[id] = program
+    Launcher.log.info("app asked for", {name: program.name, path: program.path, id: id})
+    return true
+  end
+
+  -- A part of a request as it is written: a tab, a new line or a
+  -- backslash in it would end the part or the request.
+  static fn written(part: string) -> string
+    local out = String.replace(part, "\\", "\\\\")
+    out = String.replace(out, "\t", "\\t")
+    return String.replace(out, "\n", "\\n")
+  end
+
+  -- A part of an answer as it was meant: the other way.
+  static fn meant(part: string) -> string
+    local out = ""
+    local i = 1
+    local length = String.len(part)
+    while i <= length do
+      local c = String.sub(part, i, i)
+      if c == "\\" and i < length then
+        local next = String.sub(part, i + 1, i + 1)
+        if next == "t" then
+          out ..= "\t"
+        elseif next == "n" then
+          out ..= "\n"
+        else
+          out ..= next
+        end
+        i += 2
+      else
+        out ..= c
+        i += 1
+      end
+    end
+    return out
+  end
+
+  -- Drop `request` where init takes requests: written beside and renamed
+  -- over, so that it never reads half of one. False when it couldn't be.
+  static fn send(request: string) -> boolean
+    -- Named so that they sort as they were sent: init takes the oldest
+    -- first, and two made in the same instant by their names.
+    Launcher.sent += 1
+    local name = tostring(Launcher.sent)
+    while String.len(name) < 8 do
+      name = "0" .. name
+    end
+    local path = Launcher.asking! .. "/requests/" .. name
+    local file = Io.open(path .. ".part", IoMode.Write)
+    if file == nil then
+      return false
+    end
+    file!.write(request .. "\n")
+    file!.close()
+    Os.rename(path .. ".part", path)
+    return true
+  end
+
+  -- Read init's answer, if it was last read more than `every`
+  -- milliseconds ago: which apps run, as which process, and which have ended.
+  static fn hear(every: integer) -> nil
+    local now = Os.timeMillis()
+    if now - Launcher.readAt < every then
+      return
+    end
+    Launcher.readAt = now
+    local file = Io.open(Launcher.asking! .. "/apps", IoMode.Read)
+    if file == nil then
+      return
+    end
+    local text = file!.read("a") ?? ""
+    file!.close()
+
+    for line in String.split(text, "\n") do
+      local parts = String.split(line, "\t")
+      local id = Launcher.meant(parts[1] ?? "")
+      local program = Launcher.askedFor[id]
+      if program != nil and #parts >= 3 then
+        local pid = (parts[2] as integer?) ?? 0
+        Launcher.heard(id, program!, pid, parts[3], Launcher.meant(parts[4] ?? ""))
+      end
+    end
+  end
+
+  -- What init said of the app asked for as `id`.
+  static fn heard(
+    id: string,
+    program: Program,
+    pid: integer,
+    stands: string,
+    more: string
+  ) -> nil
+    if stands == "running" then
+      if Launcher.started[pid] == nil then
+        Launcher.started[pid] = program
+        Launcher.numberOf[pid] = id
+        Launcher.log.info(
+          "app started",
+          {name: program.name, path: program.path, pid: pid}
+        )
+      end
+      return
+    end
+
+    if stands == "refused" then
+      Launcher.log.error("could not start", {path: program.path, reason: more})
+      Table.insert(Launcher.failed, program.name)
+    elseif stands == "ended" then
+      -- Not 0: it gave up with an error, or (-1) the system ended it.
+      -- One ended here on purpose (Force Quit) is no failure.
+      local code = (more as integer?) ?? 0
+      if code != 0 and not Launcher.ended[id] then
+        Launcher.log.warn("app failed", {name: program.name, pid: pid, code: code})
+        Table.insert(Launcher.failed, program.name)
+      else
+        Launcher.log.debug("app ended", {pid: pid})
+      end
+    else
+      return
+    end
+    Launcher.askedFor[id] = nil
+    Launcher.ended[id] = nil
+    Launcher.started[pid] = nil
+    Launcher.numberOf[pid] = nil
+    Launcher.send("forget\t" .. Launcher.written(id))
+  end
+
   -- Pass on what the apps started here wrote since last time, each frame.
   -- Their output is captured, so unread it would be lost (and pile up in
   -- memory): it goes to the window manager's standard error as it is, so
   -- one terminal shows the apps' log lines with its own. An app that has
   -- ended is let go of once everything it wrote has been passed on.
   static fn pump() -> nil
+    -- Asked of init: what they write is its to pass on, and how they
+    -- stand is in its answer.
+    if Launcher.asking != nil then
+      if Launcher.waiting() then
+        Launcher.hear(Launcher.awaited)
+      else
+        Launcher.hear(Launcher.settled)
+      end
+      return
+    end
     for i = #Launcher.running, 1, -1 do
       local process = Launcher.running[i]
       local out = Launcher.text(process.read())
@@ -159,6 +385,15 @@ export class Launcher
   -- End the app with process id `pid` at once, without asking it: Force
   -- Quit. False when it is not one started here.
   static fn forceQuit(pid: integer) -> boolean
+    if Launcher.asking != nil then
+      local id = Launcher.numberOf[pid]
+      if id == nil then
+        return false
+      end
+      Launcher.log.debug("app killed", {pid: pid})
+      Launcher.ended[id!] = true
+      return Launcher.send("kill\t" .. tostring(pid))
+    end
     for i = 1, #Launcher.running do
       local process = Launcher.running[i]
       if process.pid() == pid then

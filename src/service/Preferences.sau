@@ -111,6 +111,10 @@ export class Preferences
       "tapToClick = " .. tostring(options.tapToClick),
       "tapAndDrag = " .. tostring(options.tapAndDrag),
       "trackpadInertia = " .. tostring(options.trackpadInertia),
+      "dimAfter = " .. tostring(options.dimAfter),
+      "lockAfter = " .. tostring(options.lockAfter),
+      "dimTo = " .. tostring(options.dimTo),
+      "dimBlur = " .. tostring(options.dimBlur),
       "pointerAcceleration = " .. tostring(options.pointerAcceleration),
       "keyboardLayouts = " .. options.keyboardLayouts,
       "focusFollowsPointer = " .. tostring(options.focusFollowsPointer),
@@ -182,6 +186,14 @@ export class Preferences
         options.tapAndDrag = value == "true"
       case "trackpadInertia" then
         options.trackpadInertia = value == "true"
+      case "dimAfter" then
+        options.dimAfter = Math.max((value as integer?) ?? 120, 0)
+      case "lockAfter" then
+        options.lockAfter = Math.max((value as integer?) ?? 300, 0)
+      case "dimTo" then
+        options.dimTo = Math.clamp((value as integer?) ?? 30, 5, 100)
+      case "dimBlur" then
+        options.dimBlur = value == "true"
       case "pointerAcceleration" then
         options.pointerAcceleration = value == "true"
       case "keyboardLayouts" then

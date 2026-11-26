@@ -71,6 +71,39 @@ export class Session
   -- as a Mac does: "volume", "brightness" or "layout", or "" for nothing.
   hud: string
 
+  -- Left alone: after how many seconds without a key or the pointer the
+  -- screen dims, and after how many it locks. 0 is never. Settings sets
+  -- them (`WmOptions`).
+  dimAfter: integer
+  lockAfter: integer
+
+  -- How much of its brightness the screen keeps when it dims, in
+  -- hundredths, and whether what is on it is blurred as well. Settings
+  -- sets them too.
+  dimTo: integer
+  dimBlur: boolean
+
+  -- The screen is dimmed (see `leftAlone`): where it is going. How far
+  -- it has got is `dimLevel`, from 0, as it was, to 1, as dim as it
+  -- gets: it comes down slowly and lifts fast (`dimStep`).
+  dimmed: boolean
+  dimLevel: float
+
+  -- How bright the backlight was before it was turned down for that, -1
+  -- when it isn't; what it was last asked to be, and when.
+  brightBefore: integer
+  brightAsked: integer
+  brightAskedAt: float
+
+  -- How long the dimming takes to come down, and to lift, in seconds; no
+  -- backlight is turned lower than `dimmest`, which can still be read;
+  -- and it is asked for a new brightness no more often than this, in
+  -- seconds, each asking being a file for the system to read.
+  static dimFalls: float = 1.5
+  static dimLifts: float = 0.35
+  static dimmest: integer = 5
+  static dimEvery: float = 0.04
+
   -- Windowed: every window its own size, dragged about and overlapping,
   -- as on a Mac. Not windowed: tiled. Switching moves the windows there
   -- are (see `setWindowed`).
@@ -198,6 +231,15 @@ export class Session
     self.triedBefore = 0
     self.askedAt = 0.0
     self.hud = ""
+    self.dimAfter = 120
+    self.lockAfter = 300
+    self.dimTo = 30
+    self.dimBlur = true
+    self.dimmed = false
+    self.dimLevel = 0.0
+    self.brightBefore = -1
+    self.brightAsked = -1
+    self.brightAskedAt = 0.0
     self.hudAt = 0.0
     self.windowed = false
     self.dock = true
@@ -722,9 +764,11 @@ export class Session
   end
 
   -- A picture of the screen as it is, kept in Pictures as a PNG named
-  -- for the moment it was taken.
+  -- for the moment it was taken. The person's Pictures: on Saule Linux
+  -- this runs as an account of its own, and `SAULE_PERSON_HOME` says
+  -- where the person's files are (init lets it write in that one folder).
   fn screenshot() -> nil
-    local home = Os.getenv("HOME") ?? "."
+    local home = Os.getenv("SAULE_PERSON_HOME") ?? Os.getenv("HOME") ?? "."
     local folder = home .. "/Pictures"
     Os.mkdir(folder, true)
     local now = Machine.now()
@@ -1002,10 +1046,129 @@ export class Session
     self.flash("volume")
   end
 
+  -- The computer has been left alone for `idle` seconds, without a key
+  -- or the pointer: dim the screen once that is long enough, and lock it
+  -- once it is longer; lift the dimming when somebody is back. Dimming
+  -- is the backlight turned down, where there is one, and what is on the
+  -- screen blurred a little; it comes and goes over a moment (`dimStep`). True when
+  -- something changed. Only where this is the computer's own screen: in a
+  -- window on another desktop, that desktop does its own.
+  fn leftAlone(idle: float) -> boolean
+    if Keymap.host != "saule" then
+      return false
+    end
+    -- `SAULE_WM_IDLE=5,10` dims after 5 seconds and locks after 10,
+    -- whatever Settings says: for working on this without the wait.
+    local asked = String.split(Os.getenv("SAULE_WM_IDLE") ?? "", ",")
+    if #asked == 2 then
+      self.dimAfter = (asked[1] as integer?) ?? self.dimAfter
+      self.lockAfter = (asked[2] as integer?) ?? self.lockAfter
+    end
+    local changed = false
+    local dim = self.dimAfter > 0 and idle >= (self.dimAfter as float)
+    if dim != self.dimmed then
+      self.dimmed = dim
+      if dim then
+        Session.log.debug("screen dimmed")
+      end
+      changed = true
+    end
+    -- Locking is for a screen there is a password to unlock, and not for
+    -- one somebody has yet to set up.
+    local lock = self.lockAfter > 0 and idle >= (self.lockAfter as float)
+    if lock and not self.locked and not self.settingUp and Machine.hasPassword() then
+      Session.log.info("left alone", {seconds: self.lockAfter})
+      self.lock()
+      changed = true
+    end
+    return changed
+  end
+
+  -- Move the dimming on by `dt` seconds toward where it is going, the
+  -- backlight with it. True while it moves: the screen is to be drawn
+  -- again, the blur and the shade over it (`Dimmer`) being that much
+  -- further.
+  fn dimStep(dt: float) -> boolean
+    local wanted = 0.0
+    if self.dimmed then
+      wanted = 1.0
+    end
+    local level = self.dimLevel
+    if level == wanted then
+      return false
+    end
+    if wanted > level then
+      level = Math.min(level + dt / Session.dimFalls, wanted)
+    else
+      level = Math.max(level - dt / Session.dimLifts, wanted)
+    end
+    self.dimLevel = level
+    self.dimBacklight()
+    return true
+  end
+
+  -- How much of its light the screen has at `level` of the dimming: all
+  -- of it at 0, `dimTo` hundredths of it at 1.
+  fn lightAt(level: float) -> float
+    local kept = (Math.clamp(self.dimTo, 5, 100) as float) / 100.0
+    return 1.0 - level * (1.0 - kept)
+  end
+
+  -- The backlight as the dimming has it now, where there is one: turned
+  -- down from what it was as the dimming comes, and back up to it as the
+  -- dimming lifts. What saves a battery.
+  fn dimBacklight() -> nil
+    if not System.backlight then
+      return
+    end
+    -- As it comes down: what it was is what it goes back to.
+    if self.brightBefore < 0 then
+      if not self.dimmed then
+        return
+      end
+      self.brightBefore = System.brightness
+      self.brightAsked = System.brightness
+    end
+    local before = self.brightBefore as float
+    local now: integer = Math.floor(before * self.lightAt(self.dimLevel) + 0.5)
+    if now < Session.dimmest then
+      now = Session.dimmest
+    end
+    if now > self.brightBefore then
+      now = self.brightBefore
+    end
+    -- All the way back: nothing is held any more.
+    local over = self.dimLevel <= 0.0
+    local clock = Timer.getTime()
+    local due = clock - self.brightAskedAt >= Session.dimEvery
+    local ends = over or self.dimLevel >= 1.0
+    if now != self.brightAsked and (due or ends) then
+      System.setBrightness(now)
+      self.brightAsked = now
+      self.brightAskedAt = clock
+    end
+    if over then
+      self.brightBefore = -1
+      self.brightAsked = -1
+    end
+  end
+
+  -- The backlight as it was, at once, where the dimming holds it: before
+  -- a key changes the brightness, which is the brightness it had and not
+  -- one on its way back.
+  fn dimSettle() -> nil
+    if self.brightBefore >= 0 then
+      System.setBrightness(self.brightBefore)
+      self.brightBefore = -1
+      self.brightAsked = -1
+    end
+  end
+
   fn brightnessBy(steps: integer) -> nil
     if not System.backlight then
       return
     end
+    self.dimSettle()
     System.setBrightness(System.brightness + steps * Session.step)
     self.flash("brightness")
   end

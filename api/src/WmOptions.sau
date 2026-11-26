@@ -70,6 +70,17 @@ export class WmOptions
   tapAndDrag: boolean = true
   trackpadInertia: boolean = true
 
+  -- Left alone: after how many seconds without a key or the pointer the
+  -- screen dims, and after how many it locks (where there is a password
+  -- to unlock it with). 0 is never.
+  dimAfter: integer = 120
+  lockAfter: integer = 300
+
+  -- Dimmed: how much of its brightness the screen keeps, in hundredths,
+  -- and whether what is on it is blurred a little as well.
+  dimTo: integer = 30
+  dimBlur: boolean = true
+
   -- The keyboard layouts typed with, by XKB's names, joined with commas:
   -- "lt,us". The first is the one in use when the computer starts; a
   -- shortcut goes round them. "" is the one chosen when the system was
