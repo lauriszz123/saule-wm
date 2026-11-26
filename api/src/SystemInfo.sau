@@ -2,6 +2,8 @@
 -- it. Copied across the process boundary, so plain values only; anything
 -- that could not be found is empty or 0.
 
+from GraphicsDevice import GraphicsDevice
+
 export class SystemInfo
   -- Saule's version, and the window manager's.
   saule: string = ""
@@ -19,6 +21,17 @@ export class SystemInfo
   -- The graphics hardware, e.g. "Intel GMA 3150"; several are joined with
   -- commas.
   graphics: string = ""
+
+  -- Every graphics chip, each with its driver and whether the screen is
+  -- on it (Saule Linux; empty elsewhere). And what the screen is drawn
+  -- by: a chip, as it names itself, or "" when the processor does the
+  -- drawing because no chip has a driver that can.
+  cards: table<GraphicsDevice> = {}
+  renderer: string = ""
+
+  -- Why the processor draws, when it does: what the graphics driver
+  -- said, as Shine had it (`Graphics.getRendererProblem`).
+  rendererProblem: string = ""
 
   -- The kernel's release, e.g. "6.18.64-saule".
   kernel: string = ""

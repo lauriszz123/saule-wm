@@ -26,7 +26,8 @@
 -- It can come out of a blur as well (`blur`, as the lock screen does):
 -- blurred that far at the start of coming, sharpening as it fades in, and
 -- going, blurring again as it fades out. The image is copied and the copy
--- blurred each frame of the motion, on the GPU where Shine draws on one.
+-- blurred each frame of the motion. Where the processor draws
+-- (`Graphics.getRenderer()` is empty) neither is done: it only fades.
 
 import shine
 from uikit import *
@@ -56,8 +57,14 @@ export class Transition extends View
   anchorY: float?
 
   -- How blurred it is at the start of coming and the end of going, in
-  -- pixels (see `Graphics.blur`); 0 for not at all.
+  -- pixels (see uikit's `Blur`); 0 for not at all.
   blur: float
+
+  -- There from the moment it is built, and coming all the same: without
+  -- this, something built already shown is simply there (a layer that is
+  -- always in place waits, away, to be shown; a card made when it is
+  -- wanted has no such wait).
+  arrives: boolean
 
   fn init(
     shown: fn() -> boolean,
@@ -66,6 +73,7 @@ export class Transition extends View
     startScale: float,
     anchorY: float? = nil,
     blur: float = 0.0,
+    arrives: boolean = false,
     key: string? = nil
   )
     self.super(key)
@@ -74,6 +82,7 @@ export class Transition extends View
     self.duration = duration
     self.startScale = startScale
     self.blur = blur
+    self.arrives = arrives
     self.anchorY = anchorY
   end
 
@@ -123,6 +132,17 @@ export class Transition extends View
       return
     end
 
+    -- With the processor drawing, a motion is a fade and nothing else:
+    -- resizing a picture of the whole screen, or blurring it, every
+    -- frame is most of a second each on a netbook's processor, and the
+    -- motion would take longer than doing without it.
+    local startScale = self.startScale
+    local blur = self.blur
+    if Graphics.getRenderer() == "" then
+      startScale = 1.0
+      blur = 0.0
+    end
+
     -- The image is in the screen's own pixels, not the window manager's:
     -- on a high-density screen text is drawn at the screen's size, so an
     -- image at the window manager's would show it twice as big.
@@ -154,13 +174,13 @@ export class Transition extends View
 
     -- Blurred as far as the motion is from its end: a copy of the image,
     -- so the content is drawn only once a motion.
-    if self.blur > 0.0 then
+    if blur > 0.0 then
       image = Transition.blurred(
         el,
         image,
         pw,
         ph,
-        self.blur * density * (1.0 - t)
+        blur * density * (1.0 - t)
       )
     end
 
@@ -169,7 +189,7 @@ export class Transition extends View
     -- Shine draws. Scaling has to sample every pixel between its
     -- neighbours, which a netbook can't do across the screen every frame.
     local backdrops = el.data.scratch.backdrops as table<BackdropArea>? ?? {}
-    if self.startScale == 1.0 and density == 1.0 then
+    if startScale == 1.0 and density == 1.0 then
       for area in backdrops do
         area.draw(t)
       end
@@ -183,7 +203,7 @@ export class Transition extends View
 
     -- Otherwise faded by `t` and sized about its anchor, and brought back
     -- from the screen's pixels to the window manager's.
-    local start = self.startScale
+    local start = startScale
     local scale = (start + (1.0 - start) * t) / density
     local cx = w / 2.0
     local cy = self.anchorY ?? h / 2.0
@@ -201,6 +221,9 @@ export class Transition extends View
 
   -- How far it has come, 0 to 1, heading in or out as `shown` says.
   local fn motion(scratch: table) -> AnimationController
+    if self.arrives and scratch.shown == nil then
+      motionOn(scratch, "shown", false, self.duration)
+    end
     return motionOn(scratch, "shown", self.shown(), self.duration)
   end
 
@@ -242,7 +265,7 @@ export class Transition extends View
     Graphics.setColor(1.0, 1.0, 1.0, 1.0)
     Graphics.draw(image, 0.0, 0.0)
     Graphics.setBlendMode("alpha")
-    Graphics.blur(0.0, 0.0, w as float, h as float, radius)
+    Blur.draw(0.0, 0.0, w as float, h as float, radius)
     Graphics.pop()
     Graphics.setCanvas()
     Graphics.setScissor(sx, sy, sw, sh)

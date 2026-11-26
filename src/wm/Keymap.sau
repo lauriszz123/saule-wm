@@ -45,6 +45,10 @@ export class Keymap
   static minimise: table<string> = {"super", "m"}
   static windowed: table<string> = {"super", "t"}
 
+  -- A report of the computer, written to the USB drive plugged in: for
+  -- finding out why something does not work on it.
+  static report: table<string> = {"super", "shift", "r"}
+
   -- Close the window; float it or tile it; resize mode; the next window
   -- beside or below.
   static close: table<string> = {"super", "shift", "q"}
@@ -156,6 +160,7 @@ export class Keymap
       case "screenshot" then Keymap.screenshot
       case "minimise" then Keymap.minimise
       case "windowed" then Keymap.windowed
+      case "report" then Keymap.report
       case "quit" then Keymap.quit
       case "close" then Keymap.close
       case "float" then Keymap.float
@@ -182,6 +187,8 @@ export class Keymap
         Keymap.minimise = keys
       case "windowed" then
         Keymap.windowed = keys
+      case "report" then
+        Keymap.report = keys
       case "quit" then
         Keymap.quit = keys
       case "close" then
@@ -260,6 +267,7 @@ export class Keymap
     Keymap.screenshot = Keymap.withMod({"shift", "s"})
     Keymap.minimise = Keymap.withMod({"m"})
     Keymap.windowed = Keymap.withMod({"t"})
+    Keymap.report = Keymap.withMod({"shift", "r"})
     Keymap.beside = Keymap.withMod({"h"})
     Keymap.below = Keymap.withMod({"v"})
   end

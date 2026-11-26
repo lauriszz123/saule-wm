@@ -1,0 +1,61 @@
+-- The windows that have just closed, over the area the windows share:
+-- each a picture of itself (the session's `Ghost`), fading out as it
+-- shrinks where the window was. Pictures only: nothing here can be
+-- pressed, and a press goes through to what is behind.
+
+import shine
+from uikit import *
+from wm import Session
+from WindowMotion import WindowMotion
+
+export class GhostLayer extends View
+  session: Session
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    return constraints.biggest()
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  fn tick(el: Element, dt: float) -> nil
+    if #self.session.ghosts > 0 then
+      Repaint.request()
+    end
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    -- Where the windows' area is: what a window says where it is from.
+    WindowMotion.originX = x
+    WindowMotion.originY = y
+    local now = Os.clock()
+    local sized = WindowMotion.sizes()
+    for ghost in self.session.ghosts do
+      local left = 1.0 - WindowMotion.eased((now - ghost.at) / WindowMotion.leave)
+      if left > 0.0 then
+        local size = 1.0
+        if sized then
+          size = WindowMotion.small + (1.0 - WindowMotion.small) * left
+        end
+        WindowMotion.show(
+          ghost.image,
+          x + ghost.x,
+          y + ghost.y,
+          ghost.width,
+          ghost.height,
+          ghost.width,
+          ghost.height,
+          left,
+          size
+        )
+      end
+    end
+  end
+end

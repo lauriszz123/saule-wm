@@ -45,6 +45,10 @@ export class WmOptions
   pointerSpeed: float = 1.0
   scrollSpeed: float = 1.0
 
+  -- A mouse moved fast takes the pointer further than the same distance
+  -- moved slowly; off, it goes as far as the mouse says however fast.
+  pointerAcceleration: boolean = true
+
   -- The wheel the other way round: what is scrolled moves the way the
   -- fingers do.
   naturalScrolling: boolean = false
@@ -60,6 +64,11 @@ export class WmOptions
   trackpadScrollSpeed: float = 1.0
   trackpadNaturalScrolling: boolean = true
   tapToClick: boolean = true
+
+  -- A trackpad's, too: a touch straight after a tap drags what was
+  -- tapped, and a scroll let go of while moving carries on, slowing.
+  tapAndDrag: boolean = true
+  trackpadInertia: boolean = true
 
   -- The keyboard layouts typed with, by XKB's names, joined with commas:
   -- "lt,us". The first is the one in use when the computer starts; a

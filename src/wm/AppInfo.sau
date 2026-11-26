@@ -22,9 +22,24 @@ export class Notice
   -- When it was shown, by `Os.clock`.
   at: float
 
+  -- Which one it is, counted from the first: what its card is known by
+  -- while others come and go round it.
+  id: integer
+  static local count: integer = 0
+
+  -- Going: its time is up or it was sent away, and it fades out for
+  -- `Notice.fade` seconds from `leftAt` before it is taken off the list.
+  leaving: boolean
+  leftAt: float
+  static fade: float = 0.2
+
   fn init(title: string, body: string, at: float)
     self.title = title
     self.body = body
     self.at = at
+    Notice.count += 1
+    self.id = Notice.count
+    self.leaving = false
+    self.leftAt = 0.0
   end
 end

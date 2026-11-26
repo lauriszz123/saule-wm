@@ -26,6 +26,9 @@ export from DragArea import *
 export from WindowDrag import *
 export from WindowButton import *
 export from TitleBar import *
+export from WindowMotion import *
+export from GhostLayer import *
+export from Switcher import *
 export from FloatingWindow import *
 export from FloatingLayer import *
 export from SearchGlyph import *

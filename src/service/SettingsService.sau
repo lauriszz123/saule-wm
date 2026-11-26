@@ -91,6 +91,9 @@ export class SettingsService implements WmSettings
     options.trackpadScrollSpeed = Pointer.padScrollSpeed
     options.trackpadNaturalScrolling = Pointer.padNatural
     options.tapToClick = Pointer.tapToClick
+    options.tapAndDrag = Pointer.tapAndDrag
+    options.trackpadInertia = Pointer.inertia
+    options.pointerAcceleration = Pointer.acceleration
     options.keyboardLayouts = Layouts.written
     options.modKey = Keymap.chosenMod
     local custom: table<string, string> = {}
@@ -137,13 +140,16 @@ export class SettingsService implements WmSettings
       options.scrollSpeed,
       options.naturalScrolling,
       options.primaryButton == "right",
-      options.focusFollowsPointer
+      options.focusFollowsPointer,
+      options.pointerAcceleration
     )
     Pointer.configureTrackpad(
       options.trackpadSpeed,
       options.trackpadScrollSpeed,
       options.trackpadNaturalScrolling,
-      options.tapToClick
+      options.tapToClick,
+      options.tapAndDrag,
+      options.trackpadInertia
     )
     Layouts.configure(options.keyboardLayouts)
 
@@ -175,6 +181,9 @@ export class SettingsService implements WmSettings
     info.kernel = SettingsService.firstLine("/proc/sys/kernel/osrelease")
     SettingsService.processor(info)
     info.graphics = GraphicsCard.name()
+    info.cards = GraphicsCard.cards()
+    info.renderer = Graphics.getRenderer()
+    info.rendererProblem = Graphics.getRendererProblem()
     SettingsService.memory(info)
     info.uptime = SettingsService.uptime()
     -- The screen's own pixels: its resolution, whatever size things are
@@ -377,6 +386,10 @@ export class SettingsService implements WmSettings
 
   fn askRestart()
     self.session.confirm("restart")
+  end
+
+  fn saveReport()
+    self.session.saveReport()
   end
 
   -- An app saying what it is: known from then on by the process that

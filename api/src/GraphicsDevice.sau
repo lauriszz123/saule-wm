@@ -1,0 +1,17 @@
+-- One graphics chip of the computer, as Settings lists them: the one
+-- built into the processor, and a card beside it if there is one. A
+-- laptop with two has its screen wired to one of them; the other, where
+-- the system has a driver for it, only draws for the first.
+
+export class GraphicsDevice
+  -- What it is called: "Intel HD Graphics 530", "NVIDIA GeForce GTX
+  -- 960M".
+  name: string = ""
+
+  -- The kernel's driver for it ("i915"), or "" when the system has none:
+  -- the chip is then there and not used.
+  driver: string = ""
+
+  -- The firmware put the screen on this one when the computer started.
+  primary: boolean = false
+end

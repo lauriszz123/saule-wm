@@ -19,6 +19,7 @@ export class KeyActions
     KeyAction("forceQuit", "Force quit the window's app"),
     KeyAction("layout", "Switch the keyboard layout"),
     KeyAction("screenshot", "Take a picture of the screen"),
+    KeyAction("report", "Save a report of the computer to a USB drive"),
     KeyAction("quit", "Quit the window manager"),
   }
 

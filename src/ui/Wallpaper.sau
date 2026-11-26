@@ -8,14 +8,18 @@
 -- Working a wallpaper out over the whole screen takes a netbook a good part
 -- of a frame (a picture, many), so a still one is drawn once into an
 -- image, and again only when the screen changes size or Settings picks
--- another. Each frame just copies that image. Both versions are drawn
--- together, the lock screen's as a copy of the desktop's with the
--- vignette over it: the screen locking is then a copy too, not the slowest
--- thing its frame would do.
+-- another. Each frame just copies that image. The lock screen's is a
+-- copy of the desktop's with the vignette over it, made when the lock
+-- screen first needs it and kept.
 --
 -- An animated one moves, so it is drawn again as it moves: as often as
--- `Wallpaper.frameRate` says, which a slow drift needs no more of, into
--- the same two images; the frames between copy them as they are.
+-- `Wallpaper.frameRate` says, which a slow drift needs no more of; the
+-- frames between copy the image as it is. And it is drawn small, a
+-- sixteenth of the screen's pixels (`Wallpaper.shrink` each way), and
+-- stretched over the screen as it is copied: it is nothing but washes of
+-- colour, which stretched look as they would drawn whole, and working
+-- one out over every pixel fifteen times a second is more than a
+-- netbook's graphics chip has in it.
 
 import shine
 from uikit import *
@@ -34,8 +38,19 @@ export class Wallpaper extends SingleChildView
   static local h: integer = 0
   static local name: string = ""
 
+  -- An animated one is due to be drawn again.
+  static local stale: boolean = false
+
+  -- Which wallpaper the lock screen's version was made from, at what
+  -- size: "" before it has been made.
+  static local lockedFrom: string = ""
+
+  -- How many of the screen's pixels each way one pixel of an animated
+  -- wallpaper's image stands for.
+  static shrink: integer = 4
+
   -- How often an animated wallpaper is drawn again, a second.
-  static frameRate: float = 30.0
+  static frameRate: float = 15.0
 
   -- Seconds an animated wallpaper has been moving, and since it was last
   -- drawn.
@@ -67,7 +82,7 @@ export class Wallpaper extends SingleChildView
     Wallpaper.since += dt
     if Wallpaper.since >= 1.0 / Wallpaper.frameRate then
       Wallpaper.since = 0.0
-      Wallpaper.name = ""
+      Wallpaper.stale = true
       Repaint.request()
     end
   end
@@ -90,31 +105,49 @@ export class Wallpaper extends SingleChildView
     local h = el.size.height as integer
     local name = Palette.wallpaperName
     local resized = w != Wallpaper.w or h != Wallpaper.h
-    if Wallpaper.desktop == nil or resized or name != Wallpaper.name then
+    if Wallpaper.desktop == nil or resized or name != Wallpaper.name or Wallpaper.stale then
       Wallpaper.render(w, h)
       Wallpaper.w = w
       Wallpaper.h = h
       Wallpaper.name = name
+      Wallpaper.stale = false
     end
     local image = Wallpaper.desktop!
     if self.vignette then
+      -- The lock screen's: made the first time it is wanted for this
+      -- wallpaper at this size, from the desktop's as it then is.
+      local made = name .. "@" .. tostring(w) .. "x" .. tostring(h)
+      if Wallpaper.locked == nil or Wallpaper.lockedFrom != made then
+        Wallpaper.renderLocked(w, h)
+        Wallpaper.lockedFrom = made
+      end
       image = Wallpaper.locked!
     end
 
     -- Shine tints an image with the current colour: white leaves it be.
+    -- An animated wallpaper's image is small, and stretched to the screen.
     Graphics.setColor(1.0, 1.0, 1.0)
-    Graphics.draw(image, x, y)
+    local iw = image.getWidth() as float
+    local ih = image.getHeight() as float
+    if iw == el.size.width and ih == el.size.height then
+      Graphics.draw(image, x, y)
+    else
+      Graphics.draw(image, x, y, 0.0, el.size.width / iw, el.size.height / ih)
+    end
     el.paintChildren(x, y)
   end
 
-  -- Draw both versions, `w` by `h`: into the images there are when they
-  -- are that size, else new ones (Shine frees the old once nothing holds
-  -- them).
+  -- Draw the desktop's version for a `w` by `h` screen: into the image
+  -- there is when it is the right size, else a new one (Shine frees the
+  -- old once nothing holds it). An animated one at a fraction of the size.
   static fn render(w: integer, h: integer) -> nil
-    local same = w == Wallpaper.w and h == Wallpaper.h
-    local desktop = Wallpaper.reuse(Wallpaper.desktop, same, w, h)
-    local locked = Wallpaper.reuse(Wallpaper.locked, same, w, h)
-    local edges = Wallpaper.vignetteShape()
+    local iw = w
+    local ih = h
+    if WallpaperArt.moves(Palette.wallpaperName) then
+      iw = Math.max(Math.ceil((w as float) / (Wallpaper.shrink as float)), 1)
+      ih = Math.max(Math.ceil((h as float) / (Wallpaper.shrink as float)), 1)
+    end
+    local desktop = Wallpaper.sized(Wallpaper.desktop, iw, ih)
     local screen = Graphics.getCanvas()
 
     -- Start from a clean slate: no transform or clip from the views around.
@@ -122,32 +155,51 @@ export class Wallpaper extends SingleChildView
     Graphics.origin()
     Graphics.setScissor()
     Graphics.setCanvas(desktop)
-
-    local fw = w as float
-    local fh = h as float
-    WallpaperArt.paint(Palette.wallpaperName, 0.0, 0.0, fw, fh, Wallpaper.time)
-
-    -- The lock screen's: the picture so far, darkened toward the edges.
-    Graphics.setCanvas(locked)
-    Graphics.setColor(1.0, 1.0, 1.0)
-    Graphics.draw(desktop, 0.0, 0.0)
-    local size = Wallpaper.edgesSize as float
-    Graphics.draw(edges, 0.0, 0.0, 0.0, fw / size, fh / size)
-    -- Softened, so the time on it is what stands out.
-    if Palette.lockWallpaperBlur > 0.0 then
-      Graphics.blur(0.0, 0.0, fw, fh, Palette.lockWallpaperBlur)
-    end
-
+    WallpaperArt.paint(
+      Palette.wallpaperName,
+      0.0,
+      0.0,
+      iw as float,
+      ih as float,
+      Wallpaper.time
+    )
     Graphics.setCanvas(screen)
     Graphics.pop()
     Wallpaper.desktop = desktop
+  end
+
+  -- Draw the lock screen's version, `w` by `h`: the desktop's as it is
+  -- now, darkened toward the edges and softened, so the time on it is
+  -- what stands out.
+  static fn renderLocked(w: integer, h: integer) -> nil
+    local desktop = Wallpaper.desktop!
+    local locked = Wallpaper.sized(Wallpaper.locked, w, h)
+    local edges = Wallpaper.vignetteShape()
+    local screen = Graphics.getCanvas()
+    local fw = w as float
+    local fh = h as float
+
+    Graphics.push("all")
+    Graphics.origin()
+    Graphics.setScissor()
+    Graphics.setCanvas(locked)
+    Graphics.setColor(1.0, 1.0, 1.0)
+    local sx = fw / (desktop.getWidth() as float)
+    local sy = fh / (desktop.getHeight() as float)
+    Graphics.draw(desktop, 0.0, 0.0, 0.0, sx, sy)
+    local size = Wallpaper.edgesSize as float
+    Graphics.draw(edges, 0.0, 0.0, 0.0, fw / size, fh / size)
+    if Palette.lockWallpaperBlur > 0.0 then
+      Blur.draw(0.0, 0.0, fw, fh, Palette.lockWallpaperBlur)
+    end
+    Graphics.setCanvas(screen)
+    Graphics.pop()
     Wallpaper.locked = locked
   end
 
-  -- `image` again when there is one and the size is the `same`, else a
-  -- new image `w` by `h`.
-  static fn reuse(image: Canvas?, same: boolean, w: integer, h: integer) -> Canvas
-    if same and image != nil then
+  -- `image` when it is `w` by `h`, else a new image of that size.
+  static fn sized(image: Canvas?, w: integer, h: integer) -> Canvas
+    if image != nil and image!.getWidth() == w and image!.getHeight() == h then
       return image!
     end
     return Graphics.newCanvas(w, h)

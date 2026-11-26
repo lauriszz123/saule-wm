@@ -3,7 +3,7 @@
 
 import shine
 from log import Logger
-from Client import Client
+from Client import Client, Ghost
 from Direction import Direction
 from Launcher import Launcher
 from Program import Program
@@ -95,6 +95,18 @@ export class Session
 
   -- Notifications on the screen now, oldest first.
   notices: table<Notice>
+
+  -- Windows that have closed, fading away where they were (see `Ghost`),
+  -- and for how long, in seconds.
+  ghosts: table<Ghost>
+  static ghostTime: float = 0.18
+
+  -- The window switcher (Mod+Tab): up while Mod stays held, with the
+  -- windows there are, the one used last first, and the one picked so
+  -- far. Letting go of Mod goes to it.
+  switching: boolean
+  switchList: table<Client>
+  switchAt: integer
 
   -- How long a notification stays, in seconds, and how many show at once.
   static noticeTime: float = 5.0
@@ -196,6 +208,10 @@ export class Session
     self.appMenuLeft = 60.0
     self.about = nil
     self.notices = {}
+    self.ghosts = {}
+    self.switching = false
+    self.switchList = {}
+    self.switchAt = 1
     self.setup = Setup()
     self.lookChanged = false
     self.panel = ""
@@ -310,6 +326,22 @@ export class Session
       return
     end
     self.windowed = windowed
+    -- The window with the keyboard keeps it through the rearranging.
+    local had = self.focused
+    -- Back to tiles: those that were tiled before go back where they
+    -- were, the last one floated first, which is the order that finds
+    -- each its neighbours again (see `Home`); then the rest.
+    if not windowed then
+      for i = #self.clients, 1, -1 do
+        local client = self.clients[i]
+        local workspace = self.workspaces[client.workspace]
+        local back = client.floating and client.byMode and not client.minimised
+        if back and client.resizable and workspace.hasHome(client) then
+          workspace.toggleFloating(client, self.split)
+          client.byMode = false
+        end
+      end
+    end
     for client in self.clients do
       if client.resizable and not client.minimised then
         local workspace = self.workspaces[client.workspace]
@@ -320,6 +352,13 @@ export class Session
           workspace.toggleFloating(client, self.split)
           client.byMode = false
         end
+      end
+    end
+    if had != nil and self.find(had!.id) != nil and not had!.minimised then
+      local workspace = self.workspaces[had!.workspace]
+      workspace.focused = had
+      if had!.floating then
+        workspace.raise(had!)
       end
     end
     Session.log.info("windows arranged", {windowed: windowed})
@@ -513,27 +552,173 @@ export class Session
   -- Each frame: notifications that have been up long enough go.
   fn noticesDue() -> nil
     local now = Os.clock()
+    local changed = false
     local kept: table<Notice> = {}
     for notice in self.notices do
-      if now - notice.at < Session.noticeTime then
+      -- Its time is up: it fades out, and then it is off the list.
+      if not notice.leaving and now - notice.at >= Session.noticeTime then
+        notice.leaving = true
+        notice.leftAt = now
+        changed = true
+      end
+      if notice.leaving and now - notice.leftAt >= Notice.fade then
+        changed = true
+      else
         Table.insert(kept, notice)
       end
     end
-    if #kept != #self.notices then
+    if changed then
       self.notices = kept
       self.sync()
     end
   end
 
+  -- Send `notice` away: it fades out as one whose time is up does.
   fn dismiss(notice: Notice) -> nil
-    local kept: table<Notice> = {}
-    for other in self.notices do
-      if other != notice then
-        Table.insert(kept, other)
+    if not notice.leaving then
+      notice.leaving = true
+      notice.leftAt = Os.clock()
+      self.sync()
+    end
+  end
+
+  -- A window that has closed while on screen stays one more frame, which
+  -- is drawn into a picture (the ui's `WindowMotion`); then it is taken
+  -- out, and the picture fades away where it was. And pictures that have
+  -- faded are let go of.
+  fn leavingDue() -> nil
+    local now = Os.clock()
+    local changed = false
+    for i = #self.clients, 1, -1 do
+      local client = self.clients[i]
+      if client.leaving and (client.snapshot != nil or now - client.leftAt > 0.25) then
+        local picture = client.snapshot
+        if picture != nil then
+          Table.insert(
+            self.ghosts,
+            Ghost(picture!, client.seenX, client.seenY, client.seenW, client.seenH, now)
+          )
+        end
+        client.snapshot = nil
+        client.picture = nil
+        self.workspaces[client.workspace].remove(client)
+        Table.remove(self.clients, i)
+        changed = true
       end
     end
-    self.notices = kept
+    local kept: table<Ghost> = {}
+    for ghost in self.ghosts do
+      if now - ghost.at < Session.ghostTime then
+        Table.insert(kept, ghost)
+      end
+    end
+    if #kept != #self.ghosts then
+      self.ghosts = kept
+      changed = true
+    end
+    if changed then
+      self.sync()
+    end
+  end
+
+  -- Whether `client`, closing, is seen to go: it is on the screen.
+  local fn goes(client: Client) -> boolean
+    local here = client.workspace == self.current and not client.minimised
+    return here and client.shownAt != nil and client.seenW > 0.0 and not self.locked
+  end
+
+  -- The windows there are, the one that had the keyboard last first.
+  fn byUse() -> table<Client>
+    local out: table<Client> = {}
+    for client in self.clients do
+      if not client.leaving then
+        local at = #out + 1
+        while at > 1 and out[at - 1].focusedAt < client.focusedAt do
+          at -= 1
+        end
+        Table.insert(out, client, at)
+      end
+    end
+    return out
+  end
+
+  -- The window switcher, a step on (1) or back (-1): brought up by the
+  -- first step, at the window used before this one, as a Mac's is.
+  fn switchStep(step: integer) -> nil
+    if not self.switching then
+      local list = self.byUse()
+      if #list == 0 then
+        return
+      end
+      self.switchList = list
+      self.switching = true
+      -- With no window having the keyboard, the first step is to the one
+      -- used last.
+      self.switchAt = 1
+      if self.focused == nil then
+        self.switchAt = 0
+      end
+    end
+    local count = #self.switchList
+    self.switchAt = (self.switchAt - 1 + step + count * 2) % count + 1
     self.sync()
+  end
+
+  -- Mod was let go of: to the window picked, wherever it is.
+  fn switchDone() -> nil
+    if not self.switching then
+      return
+    end
+    self.switching = false
+    -- The list stays as it is: the switcher is still to be seen, going.
+    local client = self.switchList[self.switchAt]
+    if client != nil and self.find(client.id) != nil and not client.leaving then
+      self.reveal(client)
+    else
+      self.sync()
+    end
+  end
+
+  -- Away with the switcher, and nothing changed.
+  fn switchCancel() -> nil
+    if self.switching then
+      self.switching = false
+      self.sync()
+    end
+  end
+
+  -- A shortcut as it is said: "Super+Shift+R".
+  static fn keysSaid(keys: table<string>) -> string
+    local said: table<string> = {}
+    for key in keys do
+      Table.insert(said, String.upper(String.sub(key, 1, 1)) .. String.sub(key, 2))
+    end
+    return String.join("+", said)
+  end
+
+  -- A report of the computer, for finding out why something does not
+  -- work on it, written by the system to the USB drive plugged in. What
+  -- the system cannot see for itself is said with it: what draws the
+  -- screen, and how.
+  fn saveReport() -> nil
+    local drawn = Graphics.getRenderer()
+    if drawn == "" then
+      drawn = "the processor"
+    end
+    local w, h = Window.getSize()
+    local notes = {
+      "drawn by=" .. drawn,
+      "why=" .. String.replace(Graphics.getRendererProblem(), ";", ","),
+      "screen=" .. tostring(w) .. "x" .. tostring(h),
+      "scale=" .. tostring(self.scale),
+      "windows=" .. tostring(#self.clients),
+    }
+    if not System.there then
+      self.notify("No report", "Reports are written by Saule Linux.")
+      return
+    end
+    System.saveReport(String.join("; ", notes))
+    Session.log.info("report asked for")
   end
 
   -- A picture of the screen as it is, kept in Pictures as a PNG named
@@ -977,6 +1162,12 @@ export class Session
     end
 
     Launcher.pump()
+    for name in Launcher.takeFailed() do
+      self.notify(
+        name .. " quit unexpectedly",
+        "With a USB drive plugged in, " .. Session.keysSaid(Keymap.report) .. " saves a report for finding out why."
+      )
+    end
     self.tellScale()
     for chore in self.chores do
       chore()
@@ -1019,9 +1210,15 @@ export class Session
           local client = self.find(ev.id)
           if client != nil then
             Session.log.info("window closed", {id: ev.id, title: client!.title})
-            self.workspaces[client!.workspace].remove(client!)
-            self.remove(ev.id)
-            self.sync()
+            if self.goes(client!) then
+              -- Seen to go: see `leavingDue`.
+              client!.leaving = true
+              client!.leftAt = Os.clock()
+            else
+              self.workspaces[client!.workspace].remove(client!)
+              self.remove(ev.id)
+              self.sync()
+            end
           end
           changed = Changed.Windows
 
@@ -1075,6 +1272,9 @@ export class Session
     end
     if self.keyboardAt != 0 and self.keyboardAt != now and self.find(self.keyboardAt) != nil then
       Compositor.sendFocus(self.keyboardAt, false)
+    end
+    if self.focused != nil and self.keyboardAt != now then
+      self.focused!.focusedAt = Os.clock()
     end
     self.keyboardAt = now
     if self.focused == nil then

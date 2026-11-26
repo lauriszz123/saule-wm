@@ -11,6 +11,9 @@ from StatusBar import StatusBar
 from ClientWindow import ClientWindow
 from SplitView import SplitView
 from FloatingLayer import FloatingLayer
+from WindowMotion import WindowMotion
+from GhostLayer import GhostLayer
+from Switcher import Switcher
 from LauncherView import LauncherView
 from Transition import Transition
 from SystemMenu import SystemMenu
@@ -70,6 +73,12 @@ export class Desktop extends View
     self.session.answered()
     self.session.hudDue()
     self.session.noticesDue()
+    self.session.leavingDue()
+    -- The window switcher is up while Mod is held: let go of, it goes to
+    -- the window picked.
+    if self.session.switching and not Keys.modDown() then
+      self.session.switchDone()
+    end
 
     -- A drive plugged in or let go of is said.
     local bag: table = el.data.scratch
@@ -89,6 +98,18 @@ export class Desktop extends View
       end
     end
     bag.drives = now
+
+    -- A report that was asked for has been written, or had no drive to
+    -- go to.
+    local reports = bag.reports as integer?
+    if reports != nil and System.reports > reports! then
+      if System.reportName == "none" then
+        self.session.notify("No drive for the report", "Plug in a USB drive and ask again.")
+      else
+        self.session.notify("Report saved", System.reportName .. " is on the USB drive.")
+      end
+    end
+    bag.reports = System.reports
 
     -- Answer what other programs asked since the last frame (Settings,
     -- through `SettingsService`), without waiting for more.
@@ -131,6 +152,7 @@ export class Desktop extends View
       appMenu,
       panel,
       about,
+      Desktop.cover(Desktop.switcher(session), "switcher"),
       confirm,
     }
     Table.insert(layers, Desktop.cover(Desktop.lockScreen(session), "lock"))
@@ -160,6 +182,7 @@ export class Desktop extends View
   --   Mod + Shift + Space       float the window, or tile it
   --   Mod + R                   resize mode (see `resizeKey`)
   --   Mod + Shift + Q           close the window
+  --   Mod + Tab                 the window switcher (see `Switcher`)
   --   `Keymap.launcher`         the launcher (Super + Space)
   --   `Keymap.lock`             lock the screen (Ctrl + Super + Q)
   --   `Keymap.forceQuit`        force quit (Alt + Super + Escape)
@@ -207,6 +230,20 @@ export class Desktop extends View
         session.closeAppMenu()
         session.closeAbout()
       end
+      return true
+    end
+
+    -- The window switcher: Mod+Tab on, with Shift back, Escape away.
+    if session.switching and e.key == "escape" then
+      session.switchCancel()
+      return true
+    end
+    if e.key == "tab" and Keys.modWith(e, false) then
+      session.switchStep(1)
+      return true
+    end
+    if e.key == "tab" and Keys.modWith(e, true) then
+      session.switchStep(-1)
       return true
     end
 
@@ -285,6 +322,8 @@ export class Desktop extends View
       session.toggleWindowed()
     elseif Keys.pressed(e, Keymap.screenshot) then
       session.screenshot()
+    elseif Keys.pressed(e, Keymap.report) then
+      session.saveReport()
     elseif Keys.pressed(e, Keymap.close) then
       session.close()
     elseif Keys.pressed(e, Keymap.beside) then
@@ -479,6 +518,17 @@ export class Desktop extends View
     return Transition(shown, content, 0.15, 0.97)
   end
 
+  -- The window switcher, settling in as the launcher does.
+  static fn switcher(session: Session) -> View
+    local shown = fn() -> boolean
+      return session.switching
+    end
+    local content = fn() -> View
+      return Switcher(session)
+    end
+    return Transition(shown, content, 0.14, 0.94)
+  end
+
   -- What a key just changed, fading in and out quickly.
   static fn hud(session: Session) -> View
     local shown = fn() -> boolean
@@ -553,6 +603,7 @@ export class Desktop extends View
     local layers = {
       Desktop.cover(Desktop.tiled(session), "tiled"),
       Desktop.cover(floating, "floating"),
+      Desktop.cover(GhostLayer(session), "ghosts"),
     }
     return ZStack(children: layers)
   end
@@ -572,7 +623,10 @@ export class Desktop extends View
   static fn tile(node: Node, session: Session) -> View
     local client = node.client
     if client != nil then
-      return ClientWindow(client!, session, key: tostring(client!.id))
+      local window = fn() -> View
+        return ClientWindow(client!, session)
+      end
+      return WindowMotion(client!, true, window, key: tostring(client!.id))
     end
 
     local places: table<View> = {}

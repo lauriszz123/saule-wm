@@ -109,6 +109,9 @@ export class Preferences
         options.trackpadNaturalScrolling
       ),
       "tapToClick = " .. tostring(options.tapToClick),
+      "tapAndDrag = " .. tostring(options.tapAndDrag),
+      "trackpadInertia = " .. tostring(options.trackpadInertia),
+      "pointerAcceleration = " .. tostring(options.pointerAcceleration),
       "keyboardLayouts = " .. options.keyboardLayouts,
       "focusFollowsPointer = " .. tostring(options.focusFollowsPointer),
       "modKey = " .. options.modKey,
@@ -175,6 +178,12 @@ export class Preferences
         options.trackpadNaturalScrolling = value == "true"
       case "tapToClick" then
         options.tapToClick = value == "true"
+      case "tapAndDrag" then
+        options.tapAndDrag = value == "true"
+      case "trackpadInertia" then
+        options.trackpadInertia = value == "true"
+      case "pointerAcceleration" then
+        options.pointerAcceleration = value == "true"
       case "keyboardLayouts" then
         options.keyboardLayouts = value
       case "focusFollowsPointer" then

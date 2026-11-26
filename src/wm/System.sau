@@ -147,6 +147,10 @@ export class System
   -- The system's version, and an update being installed: "idle",
   -- "installing", "done" or "failed", and the new version or why.
   static version: string = ""
+  -- How many reports of the computer have been written since the
+  -- system started, and the last one's file name ("none": no drive).
+  static reports: integer = 0
+  static reportName: string = ""
   static updateState: string = "idle"
   static updateDetail: string = ""
 
@@ -203,6 +207,9 @@ export class System
     System.takeBluetooth(bluetooth)
     System.takeDisks(disks)
     System.version = System.value(update, "version")
+    local written = String.split(System.value(System.read(folder .. "/report"), "written"), " ")
+    System.reports = Machine.whole(written[1] ?? "")
+    System.reportName = written[2] ?? ""
     local state = System.value(update, "state")
     local space = String.indexOf(state, " ")
     System.updateState = state
@@ -504,6 +511,13 @@ export class System
     elseif withDevice and String.len(address) == 17 and not String.contains(address, " ") then
       System.ask("bluetooth " .. action .. " " .. address)
     end
+  end
+
+  -- Write a report of the computer to every drive plugged in, with
+  -- `notes` ("name=value; name=value") added to it: what only the window
+  -- manager knows.
+  static fn saveReport(notes: string) -> nil
+    System.ask("report " .. String.replace(notes, "\n", " "))
   end
 
   -- Install the update in the file at `path`.

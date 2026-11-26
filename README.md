@@ -112,6 +112,27 @@ A window that loses the keyboard is always told (`Compositor.sendFocus`),
 and Shine then lets go of every key it held: a shortcut that takes the
 keyboard away would otherwise leave its Ctrl held in the app for good.
 
+## Windows in motion, and the switcher
+
+A window is not drawn until its app has drawn it once: then it fades in
+as it grows the last of the way to its size, and a window that closes
+fades out as it shrinks, where it was. Tiled windows glide to their new
+places when one opens, closes or floats (`WindowMotion`, `GhostLayer`).
+Where the processor draws, windows only fade. `SAULE_WM_SLOW=8` makes the
+motions eight times as long, for looking at them.
+
+Mod+Tab brings up the window switcher (`Switcher`): every window's app
+icon, the one used last first. Tab steps on while Mod stays held, with
+Shift back; letting go of Mod goes to the window picked, and Escape puts
+the switcher away.
+
+A tiled window that is floated goes back, tiled again, to where it was
+and at the size it had (`Home` in `wm/Workspace.sau`); going to windowed
+mode and back restores the whole layout.
+
+What is copied in one app is pasted in another: Shine's display server
+keeps one clipboard for all of them.
+
 ## The size of everything
 
 On Saule Linux's own screen everything is drawn at a scale: 1 a pixel to
@@ -148,6 +169,18 @@ plugged in), the sound card, the backlight, the network, the battery, the
 computer's name and time zone, and whether there is a password. Settings
 lists a pane only where there is something for it to be about, and asks
 again every second, so plugging a mouse in brings its pane.
+
+Graphics are told whole: every graphics chip the computer has
+(`SystemInfo.cards`: its name from the PCI id list, its driver or none,
+and whether the screen is on it) and what the screen is drawn by
+(`SystemInfo.renderer`, Shine's `Graphics.getRenderer()`; empty when the
+processor draws). Settings shows both under Displays, with a warning when
+it is the processor.
+
+**When something does not work**: an app that ends with an error, or is
+ended by the system, is said in a notification; and Mod+Shift+R (or
+Settings, under About) has Saule Linux write a report of the computer to
+the USB drive plugged in (`WmSettings.saveReport`).
 
 The same service starts apps for other apps (`launch`): the file browser
 asks for the editor with the file to open, or a terminal with the folder

@@ -1,0 +1,144 @@
+-- The window switcher, as a Mac's: a panel of frosted glass in the middle
+-- of the screen with every window's app icon in a row, the one used last
+-- first, and the name of the one picked under them. Mod+Tab brings it up
+-- and steps along the row (with Shift, back); letting go of Mod goes to
+-- the window picked, and Escape puts it away.
+--
+-- The mark behind the icon picked slides from one to the next
+-- (`SwitcherRow`).
+
+import shine
+from uikit import *
+from wm import Client, Session
+from Palette import Palette
+from AppIcon import AppIcon
+
+export class Switcher extends View
+  session: Session
+
+  -- A window's square in the row, the panel's edge round the row, and
+  -- how tall the name under it is.
+  static inset: float = 18.0
+  static named: float = 20.0
+
+  fn init(session: Session, key: string? = nil)
+    self.super(key)
+    self.session = session
+  end
+
+  -- How big a window's square is with `count` of them: smaller when
+  -- there are many, so the row stays on the screen.
+  static fn tile(count: integer) -> float
+    if count <= 7 then
+      return 96.0
+    end
+    if count <= 10 then
+      return 76.0
+    end
+    return 56.0
+  end
+
+  fn body(context: BuildContext) -> View
+    local session = self.session
+    local list = session.switchList
+    local count = #list
+    if count == 0 then
+      return Spacer()
+    end
+    local picked = Math.clamp(session.switchAt, 1, count)
+    local tile = Switcher.tile(count)
+
+    local icons: table<View> = {}
+    for client in list do
+      local icon = AppIcon(session.appName(client), key: "icon" .. tostring(client.id))
+      Table.insert(icons, icon.padding(tile * 0.17))
+    end
+    local row = SwitcherRow(icons, picked, tile)
+
+    local title = list[picked].title
+    local app = session.appName(list[picked])
+    if title != "" and title != app then
+      app = app .. " — " .. title
+    end
+    local name = Text(app).font(13.0).foregroundStyle(Palette.text).lineLimit(1)
+
+    local wide = tile * (count as float)
+    local column = VStack(alignment: StackAlignment.Center, spacing: 6.0) do
+      row.frame(width: wide, height: tile)
+      name.centered().frame(width: wide, height: Switcher.named)
+    end
+    local glass = Backdrop(
+      child: column.padding(Switcher.inset),
+      blur: Palette.launcherBlur,
+      tint: Palette.launcher,
+      radius: 24.0
+    )
+    local panel = glass.background(nil, 24.0, border: Palette.launcherOutline)
+    local high = tile + 6.0 + Switcher.named + 2.0 * Switcher.inset
+    local sized = panel.frame(width: wide + 2.0 * Switcher.inset, height: high)
+    return VStack(alignment: StackAlignment.Center) do
+      Spacer()
+      show(sized)
+      Spacer()
+    end
+  end
+end
+
+-- The row of icons, each in a square `tile` wide, and behind the one
+-- picked a lighter square that slides to it from the one picked before.
+export class SwitcherRow extends View
+  children: table<View>
+  picked: integer
+  tile: float
+
+  fn init(icons: table<View>, picked: integer, tile: float, key: string? = nil)
+    self.super(key)
+    self.children = claimedAll(icons)
+    self.picked = picked
+    self.tile = tile
+  end
+
+  fn childViews() -> table<View>
+    return self.children
+  end
+
+  fn layout(el: Element, constraints: Constraints) -> Size
+    local tile = self.tile
+    for i = 1, el.childCount() do
+      local child = el.childAt(i)!
+      child.layout(Constraints.tight(Size(tile, tile)))
+      child.offset = Offset(((i - 1) as float) * tile, 0.0)
+    end
+    return Size(tile * (el.childCount() as float), tile)
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  -- The mark's place, a share of the way nearer the icon picked each
+  -- frame: quick away, and slowing in.
+  fn tick(el: Element, dt: float) -> nil
+    local scratch = el.data.scratch
+    local wanted = ((self.picked - 1) as float) * self.tile
+    local at = (scratch.at as float?) ?? wanted
+    if at != wanted then
+      at += (wanted - at) * Math.min(dt * 22.0, 1.0)
+      if Math.abs(wanted - at) < 0.5 then
+        at = wanted
+      end
+      Repaint.request()
+    end
+    scratch.at = at
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local wanted = ((self.picked - 1) as float) * self.tile
+    local at = (el.data.scratch.at as float?) ?? wanted
+    Graphics.setColor(1.0, 1.0, 1.0, 0.16)
+    Graphics.rectangle("fill", x + at + 4.0, y + 4.0, self.tile - 8.0, self.tile - 8.0, 18.0)
+    Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+    el.paintChildren(x, y)
+  end
+end

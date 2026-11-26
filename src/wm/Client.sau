@@ -1,5 +1,6 @@
 -- One app's window, as the window manager knows it.
 
+import shine
 from Direction import Direction
 from Split import Split
 
@@ -54,6 +55,49 @@ export class Client
   -- because it was asked to: it is tiled again when tiling comes back.
   byMode: boolean
 
+  -- When its window opened, and when it was first shown: with its app's
+  -- first picture, or after waiting long enough for one. Nil until then,
+  -- and nothing of it is drawn (see the ui's `WindowMotion`).
+  openedAt: float
+  shownAt: float?
+
+  -- When it last got the keyboard: the window switcher's order.
+  focusedAt: float
+
+  -- Its app's latest picture, kept: what there is to show of a window
+  -- that has closed, while it goes.
+  picture: Image?
+
+  -- Closed, and on screen for one more frame, which is drawn into
+  -- `snapshot`: the picture a `Ghost` of it fades away as.
+  leaving: boolean
+  leftAt: float
+  snapshot: Canvas?
+
+  -- Where it was last put on screen, from the top left of the area the
+  -- windows share (`seen`, no width until it has been); and, from the
+  -- top left of the screen, where the layout wants it (`goal`), where it
+  -- was drawn last (`drawn`) and where it set off from at `glideAt` when
+  -- the layout last moved it (`from`): a tiled window glides to a new
+  -- place.
+  seenX: float
+  seenY: float
+  seenW: float
+  seenH: float
+  goalX: float
+  goalY: float
+  goalW: float
+  goalH: float
+  drawnX: float
+  drawnY: float
+  drawnW: float
+  drawnH: float
+  fromX: float
+  fromY: float
+  fromW: float
+  fromH: float
+  glideAt: float
+
   fn init(
     id: integer,
     title: string,
@@ -75,6 +119,30 @@ export class Client
     self.placed = false
     self.minimised = false
     self.byMode = false
+    self.openedAt = Os.clock()
+    self.shownAt = nil
+    self.focusedAt = 0.0
+    self.picture = nil
+    self.leaving = false
+    self.leftAt = 0.0
+    self.snapshot = nil
+    self.seenX = 0.0
+    self.seenY = 0.0
+    self.seenW = 0.0
+    self.seenH = 0.0
+    self.goalX = 0.0
+    self.goalY = 0.0
+    self.goalW = 0.0
+    self.goalH = 0.0
+    self.drawnX = 0.0
+    self.drawnY = 0.0
+    self.drawnW = 0.0
+    self.drawnH = 0.0
+    self.fromX = 0.0
+    self.fromY = 0.0
+    self.fromW = 0.0
+    self.fromH = 0.0
+    self.glideAt = -10.0
   end
 
   -- Move a floating window a step the `direction` way.
@@ -99,5 +167,27 @@ export class Client
     else
       self.height = Math.max(self.height + step, Client.smallest)
     end
+  end
+end
+
+-- A window that has closed, still on screen while it fades away: the
+-- picture of it as it was last drawn (with room round it for its shadow),
+-- where it was, from the top left of the area the windows share, and when
+-- it closed.
+export class Ghost
+  image: Canvas
+  x: float
+  y: float
+  width: float
+  height: float
+  at: float
+
+  fn init(image: Canvas, x: float, y: float, width: float, height: float, at: float)
+    self.image = image
+    self.x = x
+    self.y = y
+    self.width = width
+    self.height = height
+    self.at = at
   end
 end

@@ -20,6 +20,10 @@ export class Workspace
   -- The floating windows, bottom to top: the last is in front.
   floating: table<Client>
 
+  -- Where the windows floating here were tiled, by their ids: where each
+  -- goes back to when it is tiled again.
+  homes: table<integer, Home>
+
   -- The window with the keyboard while this workspace is on screen.
   focused: Client?
 
@@ -27,12 +31,18 @@ export class Workspace
     self.number = number
     self.root = nil
     self.floating = {}
+    self.homes = {}
     self.focused = nil
   end
 
   fn isEmpty() -> boolean
     return self.root == nil and #self.floating == 0
   end
+
+  -- When a window was last added, taken out, moved or floated here or on
+  -- any workspace: the windows that find themselves somewhere else just
+  -- after glide there (see the ui's `WindowMotion`).
+  static arrangedAt: float = -10.0
 
   fn has(client: Client) -> boolean
     return self.find(client) != nil or self.floatIndex(client) > 0
@@ -45,6 +55,7 @@ export class Workspace
   -- and the new one. With a floating window focused, it goes next to the
   -- last tiled window.
   fn add(client: Client, split: Split) -> nil
+    Workspace.arrangedAt = Os.clock()
     if client.floating then
       Table.insert(self.floating, client)
       self.focused = client
@@ -86,6 +97,9 @@ export class Workspace
   -- replaced by that thing. After a floating one, the keyboard goes to the
   -- floating window now in front, or to the tiled ones when there's none.
   fn remove(client: Client) -> nil
+    Workspace.arrangedAt = Os.clock()
+    -- Gone from here, it has no place here to come back to.
+    self.homes[client.id] = nil
     local index = self.floatIndex(client)
     if index > 0 then
       Table.remove(self.floating, index)
@@ -124,12 +138,138 @@ export class Workspace
 
   -- Float a tiled window, or tile a floating one; it keeps the keyboard.
   -- Floated, it is centred at the size it had floating last, or its app
-  -- asked for; tiled, it goes in as a new window would (see `add`).
+  -- asked for. Tiled, it goes back where it was tiled before, at the
+  -- size it had there (see `Home`); one that never was, or whose
+  -- neighbours have gone since, goes in as a new window would (see
+  -- `add`).
   fn toggleFloating(client: Client, split: Split) -> nil
+    if not client.floating then
+      local home = self.homeOf(client)
+      self.remove(client)
+      client.floating = true
+      client.placed = false
+      self.add(client, split)
+      if home != nil then
+        self.homes[client.id] = home!
+      end
+      return
+    end
+
+    local home = self.homes[client.id]
     self.remove(client)
-    client.floating = not client.floating
+    client.floating = false
     client.placed = false
-    self.add(client, split)
+    if home == nil or not self.comeHome(client, home!) then
+      self.add(client, split)
+    end
+    self.focused = client
+  end
+
+  -- Whether `client`, floating, has a place among the tiled windows to
+  -- go back to.
+  fn hasHome(client: Client) -> boolean
+    return self.homes[client.id] != nil
+  end
+
+  -- Where `client` is in the tree, to come back to: nil when it is not
+  -- tiled here.
+  local fn homeOf(client: Client) -> Home?
+    local node = self.find(client)
+    if node == nil then
+      return nil
+    end
+    local home = Home(node!)
+    local parent = node!.parent
+    if parent == nil then
+      return home
+    end
+    -- The place before it, or the one after when it is the first.
+    local index = parent!.indexOf(node!)
+    local beside = parent!.children[2]
+    if index > 1 then
+      beside = parent!.children[index - 1]
+      home.after = true
+    end
+    home.beside = beside
+    home.besideWeight = beside.weight
+    home.split = parent!.split
+    -- Left alone, the one beside it takes the split's place, and the
+    -- split is kept to be put back.
+    if #parent!.children == 2 then
+      home.box = parent
+    end
+    return home
+  end
+
+  -- Put `client` back at `home`. False where that can't be done: the
+  -- place it was beside has gone.
+  local fn comeHome(client: Client, home: Home) -> boolean
+    Workspace.arrangedAt = Os.clock()
+    local leaf = home.leaf
+    leaf.children = {}
+    leaf.weight = home.weight
+    if self.root == nil then
+      leaf.parent = nil
+      leaf.weight = Node.unit
+      self.root = leaf
+      return true
+    end
+    local beside = home.beside
+    if beside == nil or not self.attached(beside!) then
+      return false
+    end
+
+    -- The split it shared with the one beside it, which that one took
+    -- the place of: back in that place, holding the two as they were.
+    local box = home.box
+    if box != nil then
+      box!.children = {}
+      box!.split = home.split
+      self.replace(beside!, box!)
+      beside!.weight = home.besideWeight
+      self.pair(box!, beside!, leaf, home.after)
+      return true
+    end
+
+    -- A split of several, still there: in again at its place.
+    local parent = beside!.parent
+    if parent != nil and parent!.split == home.split then
+      local index = parent!.indexOf(beside!)
+      if home.after then
+        index += 1
+      end
+      parent!.insert(leaf, index)
+      return true
+    end
+
+    -- That split has gone, the one it was beside has not: beside it all
+    -- the same, the two sharing its room evenly.
+    local made = Node.container(home.split)
+    self.replace(beside!, made)
+    beside!.weight = Node.unit
+    leaf.weight = Node.unit
+    self.pair(made, beside!, leaf, home.after)
+    return true
+  end
+
+  -- `beside` and `leaf` into `box`, `leaf` after it or before.
+  local fn pair(box: Node, beside: Node, leaf: Node, after: boolean) -> nil
+    if after then
+      box.insert(beside)
+      box.insert(leaf)
+    else
+      box.insert(leaf)
+      box.insert(beside)
+    end
+  end
+
+  -- Whether `node` is in this workspace's tree.
+  local fn attached(node: Node) -> boolean
+    local top = node
+    while top.parent != nil do
+      top = top.parent!
+    end
+    return top == self.root
   end
 
   -- Bring a floating window in front of the others.
@@ -214,6 +354,7 @@ export class Workspace
 
   -- Swap `client` with the window next to it the `direction` way.
   fn move(client: Client, direction: Direction) -> nil
+    Workspace.arrangedAt = Os.clock()
     local other = self.neighbour(client, direction)
     local here = self.find(client)
     if other == nil or here == nil then
@@ -294,5 +435,38 @@ export class Workspace
     for child in node.children do
       Workspace.collect(child, out)
     end
+  end
+end
+
+-- Where a window was in the tree when it was floated: what puts it back
+-- there when it is tiled again.
+--
+-- Its own place (`leaf`, kept, so that a window floated before it finds
+-- it again as the place it was beside) and that place's weight; the place
+-- it was next to (`beside`, with its weight then) and whether it came
+-- after it; the way their split ran; and the split itself (`box`) when
+-- the two were alone in it, since a split left holding one thing is
+-- replaced by that thing.
+--
+-- Windows floated one after another and tiled again in the opposite
+-- order each find the tree as it was when they left it, and the whole
+-- layout comes back: which is what going to windowed mode and back does.
+export class Home
+  leaf: Node
+  weight: integer
+  beside: Node?
+  besideWeight: integer
+  after: boolean
+  split: Split
+  box: Node?
+
+  fn init(leaf: Node)
+    self.leaf = leaf
+    self.weight = leaf.weight
+    self.beside = nil
+    self.besideWeight = Node.unit
+    self.after = false
+    self.split = Split.Horizontal
+    self.box = nil
   end
 end

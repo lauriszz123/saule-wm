@@ -16,6 +16,7 @@
 -- into an image and copy that. An animated one changes every frame.
 
 import shine
+from uikit import Blur
 from Rgba import Rgba
 from Preset import Preset
 from Presets import Presets
@@ -206,7 +207,7 @@ export class WallpaperArt
       Rgba(0.64, 0.72, 0.80),
       Rgba(0.74, 0.79, 0.84)
     )
-    Graphics.blur(x, y, w, h, 6.0 * s)
+    Blur.draw(x, y, w, h, 6.0 * s)
     WallpaperArt.ridge(
       x,
       y,
@@ -220,7 +221,7 @@ export class WallpaperArt
       Rgba(0.50, 0.63, 0.60),
       Rgba(0.60, 0.70, 0.64)
     )
-    Graphics.blur(x, y, w, h, 3.0 * s)
+    Blur.draw(x, y, w, h, 3.0 * s)
     WallpaperArt.ridge(
       x,
       y,
@@ -300,7 +301,7 @@ export class WallpaperArt
       Rgba(0.93, 0.74, 0.58),
       Rgba(0.86, 0.62, 0.46)
     )
-    Graphics.blur(x, y, w, h, 4.0 * s)
+    Blur.draw(x, y, w, h, 4.0 * s)
     WallpaperArt.ridge(
       x,
       y,
@@ -382,7 +383,7 @@ export class WallpaperArt
       Rgba(0.66, 0.52, 0.72),
       Rgba(0.92, 0.72, 0.72)
     )
-    Graphics.blur(x, y, w, h * 0.8, 6.0 * s)
+    Blur.draw(x, y, w, h * 0.8, 6.0 * s)
     WallpaperArt.ridge(
       x,
       y,
@@ -396,7 +397,7 @@ export class WallpaperArt
       Rgba(0.44, 0.34, 0.60),
       Rgba(0.80, 0.58, 0.68)
     )
-    Graphics.blur(x, y, w, h * 0.8, 2.0 * s)
+    Blur.draw(x, y, w, h * 0.8, 2.0 * s)
     WallpaperArt.ridge(
       x,
       y,
@@ -538,7 +539,7 @@ export class WallpaperArt
     Graphics.scale(1.0, -1.0)
     WallpaperArt.range(x, y, w, h, horizon, Rgba(0.08, 0.10, 0.22, 0.9))
     Graphics.pop()
-    Graphics.blur(x, top, w, y + h - top, 8.0 * s)
+    Blur.draw(x, top, w, y + h - top, 8.0 * s)
     WallpaperArt.range(x, y, w, h, horizon, Rgba(0.04, 0.05, 0.12))
     -- Moonlight on the water: a soft streak down from the moon.
     for k = 0, 5 do

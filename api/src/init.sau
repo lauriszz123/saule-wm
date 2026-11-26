@@ -8,6 +8,7 @@
 -- the wallpapers are drawn by the same code as the screen's.
 
 export from WmOptions import *
+export from GraphicsDevice import *
 export from SystemInfo import *
 export from Rgba import *
 export from Preset import *

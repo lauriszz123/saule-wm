@@ -1,10 +1,12 @@
 -- Notifications: cards of frosted glass at the top right of the screen,
 -- under the bar, each for a few seconds, as a Mac shows them. The newest
--- is at the top; clicking one sends it away.
+-- is at the top; clicking one sends it away. A card fades in as it comes
+-- and out as it goes, as the panels under the bar do (`Transition`).
 
 from uikit import *
 from wm import Notice, Session
 from Palette import Palette
+from Transition import Transition
 
 export class Notices extends View
   session: Session
@@ -20,7 +22,15 @@ export class Notices extends View
     local session = self.session
     local cards: table<View> = {}
     for i = #session.notices, 1, -1 do
-      Table.insert(cards, Notices.card(session, session.notices[i]))
+      local notice = session.notices[i]
+      local shown = fn() -> boolean
+        return not notice.leaving
+      end
+      local card = fn() -> View
+        return Notices.card(session, notice)
+      end
+      local name = "notice" .. tostring(notice.id)
+      Table.insert(cards, Transition(shown, card, 0.18, 1.0, arrives: true, key: name))
     end
     local stack = VStack(
       alignment: StackAlignment.Fill,

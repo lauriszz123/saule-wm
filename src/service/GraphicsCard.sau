@@ -14,6 +14,7 @@
 -- window manager starts (`start`), and the answer read when About wants
 -- it: empty until it has come.
 
+from "wmapi" import GraphicsDevice
 from log import Logger
 
 export class GraphicsCard
@@ -48,6 +49,9 @@ export class GraphicsCard
   static local query: Process? = nil
   static local output: string = ""
   static local answer: string = ""
+
+  -- The chips, once they have been looked for.
+  static local found: table<GraphicsDevice>? = nil
 
   -- The names last written to the log.
   static local logged: string = ""
@@ -123,55 +127,108 @@ export class GraphicsCard
     return Table.concat(names, ", ")
   end
 
-  -- The PCI graphics devices the kernel drives, each named. With none, a
-  -- screen the firmware set up and no driver took over (simpledrm) says
-  -- so, rather than nothing.
-  static fn fromKernel() -> string
-    local root = "/sys/class/drm"
-    if not Os.exists(root) then
-      return ""
+  -- Every graphics chip the computer has, whether or not anything drives
+  -- it: the PCI devices that say they are display controllers. The one
+  -- the screen is on comes first.
+  static fn cards() -> table<GraphicsDevice>
+    -- Looked for once: a chip is not plugged in while the system runs,
+    -- and naming one reads the whole list of names.
+    if GraphicsCard.found != nil then
+      return GraphicsCard.found!
     end
-    local names: table<string> = {}
-    local firmware = false
-    for entry in Os.list(root) do
-      -- "card0", not its outputs ("card0-HDMI-A-1") or "renderD128".
-      local output = String.contains(entry, "-")
-      local card = String.starts(entry, "card") and not output
-      local device = root .. "/" .. entry .. "/device/"
-      if card and Os.exists(device .. "vendor") then
-        Table.insert(names, GraphicsCard.describe(device))
-      elseif card then
-        local uevent = GraphicsCard.read(device .. "uevent")
-        firmware = firmware or String.contains(uevent, "simple-framebuffer")
+    local root = "/sys/bus/pci/devices"
+    local found: table<GraphicsDevice> = {}
+    GraphicsCard.found = found
+    if not Os.exists(root) then
+      return found
+    end
+    local addresses = Os.list(root)
+    Table.sort(addresses, fn(a: string, b: string) -> boolean
+      return a < b
+    end)
+    for address in addresses do
+      local device = root .. "/" .. address .. "/"
+      local kind = GraphicsCard.firstLine(device .. "class")
+      -- A chip's second function (".1": the second display pipe of
+      -- Intel's old mobile chips) is a device of its own on the bus that
+      -- no driver ever takes: part of the chip already listed, not
+      -- another chip.
+      local part = not String.ends(address, ".0") and GraphicsCard.driver(device) == ""
+      if String.starts(kind, "0x03") and not part then
+        local card = GraphicsDevice()
+        card.name = GraphicsCard.describe(device)
+        card.driver = GraphicsCard.driver(device)
+        card.primary = String.trim(GraphicsCard.firstLine(device .. "boot_vga")) == "1"
+        if card.primary then
+          Table.insert(found, card, 1)
+        else
+          Table.insert(found, card)
+        end
       end
     end
-    if #names == 0 and firmware then
+    return found
+  end
+
+  -- The cards' names, joined; a screen the firmware set up with no card
+  -- found at all says so, rather than nothing.
+  static fn fromKernel() -> string
+    local names: table<string> = {}
+    for card in GraphicsCard.cards() do
+      Table.insert(names, card.name)
+    end
+    if #names == 0 and Os.exists("/sys/class/drm/card0") then
       return "Firmware framebuffer (no driver)"
     end
     return Table.concat(names, ", ")
   end
 
-  -- One PCI device, from its folder in /sys: its ids and its driver.
+  -- The kernel's driver for the device in `device`, or "".
+  static fn driver(device: string) -> string
+    for line in String.split(GraphicsCard.read(device .. "uevent"), "\n") do
+      if String.starts(line, "DRIVER=") then
+        return String.sub(line, 8)
+      end
+    end
+    return ""
+  end
+
+  -- One PCI device, from its folder in /sys, named: by the list of known
+  -- ones here, else by the pci.ids list, else by its maker alone.
   static fn describe(device: string) -> string
     local vendor = GraphicsCard.hex(GraphicsCard.firstLine(device .. "vendor"))
     local model = GraphicsCard.hex(GraphicsCard.firstLine(device .. "device"))
     local id = vendor .. ":" .. model
-    local named = GraphicsCard.known[id] ?? GraphicsCard.fromList(vendor, model)
-    if named != "" then
-      return GraphicsCard.tidy(named)
-    end
-
     local maker = GraphicsCard.makers[vendor] ?? id
-    local driver = ""
-    for line in String.split(GraphicsCard.read(device .. "uevent"), "\n") do
-      if String.starts(line, "DRIVER=") then
-        driver = String.sub(line, 8)
-      end
+    local known = GraphicsCard.known[id]
+    if known != nil then
+      return known!
     end
-    if driver == "" then
-      return maker .. " graphics"
+    local listed = GraphicsCard.fromList(vendor, model)
+    if listed != "" then
+      return GraphicsCard.named(maker, listed)
     end
-    return maker .. " graphics (" .. driver .. ")"
+    return maker .. " graphics"
+  end
+
+  -- A name as pci.ids has it, as a person says it: the part in square
+  -- brackets where there is one ("GM107M [GeForce GTX 960M]" is a
+  -- GeForce GTX 960M), and the maker before it.
+  static fn named(maker: string, listed: string) -> string
+    local name = GraphicsCard.tidy(listed)
+    local open = String.indexOf(name, "[")
+    local close = String.indexOf(name, "]")
+    if open != nil and close != nil and close! > open! + 1 then
+      name = String.sub(name, open! + 1, close! - 1)
+    end
+    -- A list of several names for one chip: the first.
+    local slash = String.indexOf(name, " / ")
+    if slash != nil then
+      name = String.sub(name, 1, slash! - 1)
+    end
+    if String.starts(String.lower(name), String.lower(maker)) then
+      return name
+    end
+    return maker .. " " .. name
   end
 
   -- The device's name in the pci.ids list, or "" without one.

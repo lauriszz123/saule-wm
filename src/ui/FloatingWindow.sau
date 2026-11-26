@@ -46,9 +46,11 @@ export class FloatingWindow extends View
     }
     if client.resizable then
       local size = FloatingWindow.corner
-      local corner = self.drag("resizeall", true)
-      local at = Positioned(right: 0.0, bottom: 0.0, child: corner)
-      Table.insert(layers, at.frame(width: size, height: size))
+      -- The corner is sized, and then placed: a frame round the placing
+      -- would be a box of its own at the window's top left, over the
+      -- close button.
+      local corner = self.drag("resizeall", true).frame(width: size, height: size)
+      Table.insert(layers, Positioned(right: 0.0, bottom: 0.0, child: corner))
     end
     return ZStack(children: layers)
   end

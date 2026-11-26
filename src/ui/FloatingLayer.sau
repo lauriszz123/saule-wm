@@ -3,22 +3,26 @@
 -- is drawn last and asked first about the pointer.
 --
 -- It reads the places as it lays out, not as it is built, so dragging a
--- window only lays out again. A window not placed yet is centred, a
--- little above the middle as a Mac puts a new window. And every window is
--- kept where it can be reached: its title bar on screen, with enough of
--- it to grab either side.
+-- window only lays out again. A window not placed yet goes in the middle
+-- of the room, or a step down and to the right of a window that is there
+-- already, whose title bar it would cover. And every window is kept where
+-- it can be reached: its title bar on screen, with enough of it to grab
+-- either side.
 
 from uikit import *
 from wm import Client, Session
 from Palette import Palette
 from FloatingWindow import FloatingWindow
+from WindowMotion import WindowMotion
 
 export class FloatingLayer extends View
   -- How much of a window's title bar always stays on screen.
   static reach: float = 80.0
 
-  -- How many windows have been placed: where the next one goes.
-  static local opened: integer = 0
+  -- How far down and to the right of a window in the middle the next one
+  -- goes, and how near a window's corner counts as being there.
+  static step: float = 26.0
+  static near: float = 8.0
 
   clients: table<Client>
   children: table<View>
@@ -30,7 +34,10 @@ export class FloatingLayer extends View
     for client in session.workspace().floating do
       Table.insert(self.clients, client)
       local id = tostring(client.id)
-      Table.insert(windows, FloatingWindow(client, session, key: id))
+      local window = fn() -> View
+        return FloatingWindow(client, session)
+      end
+      Table.insert(windows, WindowMotion(client, false, window, key: id))
     end
     self.children = claimedAll(windows)
   end
@@ -52,7 +59,7 @@ export class FloatingLayer extends View
     for i = 1, #self.clients do
       local client = self.clients[i]
       FloatingLayer.follow(client, Size(wasWidth, wasHeight), size)
-      FloatingLayer.fit(client, size)
+      FloatingLayer.fit(client, size, self.clients)
 
       local child = el.childAt(i)
       if child != nil then
@@ -83,10 +90,11 @@ export class FloatingLayer extends View
     end
   end
 
-  -- Keep `client` inside `room`: no bigger than it, placed if it wasn't,
-  -- and with its title bar where the pointer can get at it. Whole pixels,
-  -- so the app's pixels land on the screen's.
-  static fn fit(client: Client, room: Size) -> nil
+  -- Keep `client` inside `room`: no bigger than it, placed if it wasn't
+  -- (clear of `others`, the windows it shares the room with), and with
+  -- its title bar where the pointer can get at it. Whole pixels, so the
+  -- app's pixels land on the screen's.
+  static fn fit(client: Client, room: Size, others: table<Client> = {}) -> nil
     local bar = Palette.titleHeight
     local width = Math.min(client.width, room.width)
     client.width = Math.floor(width) as float
@@ -95,13 +103,18 @@ export class FloatingLayer extends View
 
     if not client.placed then
       client.placed = true
-      local spare = room.height - client.height - bar
-      -- Each new window a step down and to the right of the last, so
-      -- one opened over another leaves the other's title bar to grab.
-      local step = ((FloatingLayer.opened % 6) as float) * 26.0
-      FloatingLayer.opened += 1
-      client.x = (room.width - client.width) / 2.0 + step
-      client.y = spare * 0.4 + step
+      -- The middle; with a window there already, a step down and to the
+      -- right of it, which leaves that one's title bar to grab.
+      local x = Math.floor((room.width - client.width) / 2.0) as float
+      local y = Math.floor(Math.max(room.height - client.height - bar, 0.0) / 2.0) as float
+      local steps = 0
+      while steps < 8 and FloatingLayer.taken(client, x, y, others) do
+        x += FloatingLayer.step
+        y += FloatingLayer.step
+        steps += 1
+      end
+      client.x = x
+      client.y = y
     end
 
     local reach = Math.min(FloatingLayer.reach, client.width)
@@ -110,4 +123,20 @@ export class FloatingLayer extends View
     client.x = Math.floor(x) as float
     client.y = Math.floor(y) as float
   end
+
+  -- Whether one of `others`, placed and on screen, has its corner at
+  -- (`x`, `y`), where `client` would go.
+  static fn taken(client: Client, x: float, y: float, others: table<Client>) -> boolean
+    for other in others do
+      if other != client and other.placed and not other.minimised then
+        local dx = Math.abs(other.x - x)
+        local dy = Math.abs(other.y - y)
+        if dx < FloatingLayer.near and dy < FloatingLayer.near then
+          return true
+        end
+      end
+    end
+    return false
+  end
+
 end

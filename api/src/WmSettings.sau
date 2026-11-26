@@ -93,6 +93,11 @@ export extern interface WmSettings
   -- Restart the computer, asking first as the sun's menu does.
   fn askRestart()
 
+  -- Write a report of the computer (what it is made of, which drivers
+  -- took what, what the system and its apps printed) to the USB drive
+  -- plugged in. A notification says where it went.
+  fn saveReport()
+
   -- Ask a time server the time now.
   fn syncClock()
 

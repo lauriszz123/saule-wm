@@ -1,0 +1,291 @@
+-- A window as it comes, moves and goes: what is round every app's window
+-- on the desktop, tiled or floating.
+--
+--   coming   Nothing of a window is drawn until its app has drawn it once
+--            (or has taken too long to): then it fades in while it grows
+--            from `small` of its size to all of it, instead of a blank
+--            frame popping up and filling in later.
+--   moving   A tiled window that the layout has moved (another opened
+--            beside it, or closed, or was floated) glides from where it
+--            was drawn to its new place and size. Its app is told the new
+--            size at once and once; what glides is its picture, stretched
+--            on the way. A window dragged or resized by hand is where the
+--            hand puts it: only a layout that has just been rearranged
+--            (`Workspace.arrangedAt`) glides.
+--   going    A window that has closed is on screen for one more frame.
+--            That frame is drawn into a picture, which the session keeps
+--            as a `Ghost`, and `GhostLayer` fades it out as it shrinks,
+--            where the window was, while the others glide into its room.
+--
+-- A fade needs the window as one picture: it is drawn into an image a
+-- little larger than itself (its shadow is outside it) and the image is
+-- drawn faded. Only for the frames of the motion; at rest the window is
+-- drawn straight onto the screen. Where the processor draws
+-- (`Graphics.getRenderer()` is empty) nothing changes size and nothing
+-- glides: resizing a picture every frame is more than it can do smoothly.
+
+import shine
+from uikit import *
+from wm import Client, Session, Workspace
+from Transition import Transition
+
+export class WindowMotion extends View
+  client: Client
+
+  -- In the layout's tree: it glides when the layout moves it.
+  tiled: boolean
+
+  -- What it is round: the window, built when this is.
+  content: fn() -> View
+
+  -- How long coming, going and gliding take, in seconds.
+  static appear: float = 0.22
+  static leave: float = 0.18
+  static glide: float = 0.26
+
+  -- How long a window with nothing drawn yet is waited for.
+  static patience: float = 0.6
+
+  -- Its size as it starts to come, and as it has gone.
+  static small: float = 0.85
+
+  -- The room round a window in its picture, for its shadow.
+  static margin: float = 28.0
+
+  -- `SAULE_WM_SLOW=4` makes every motion here take four times as long:
+  -- for looking at one, which at its own speed is over in a blink. And
+  -- made in full, sizes and glides too, whatever draws.
+  static local paced: boolean = false
+  static local full: boolean = false
+
+  -- Whether windows change size and glide, and do not only fade: where a
+  -- graphics chip draws.
+  static fn sizes() -> boolean
+    return WindowMotion.full or Graphics.getRenderer() != ""
+  end
+
+  static fn pace() -> nil
+    if WindowMotion.paced then
+      return
+    end
+    WindowMotion.paced = true
+    local slow = (Os.getenv("SAULE_WM_SLOW") as float?) ?? 1.0
+    if slow > 1.0 then
+      WindowMotion.full = true
+      WindowMotion.appear *= slow
+      WindowMotion.leave *= slow
+      WindowMotion.glide *= slow
+      Session.ghostTime *= slow
+    end
+  end
+
+  -- Where the area the windows share is on the screen (`GhostLayer`,
+  -- which covers it, says).
+  static originX: float = 0.0
+  static originY: float = 0.0
+
+  fn init(client: Client, tiled: boolean, content: fn() -> View, key: string? = nil)
+    self.super(key)
+    WindowMotion.pace()
+    self.client = client
+    self.tiled = tiled
+    self.content = content
+  end
+
+  fn body(context: BuildContext) -> View
+    return self.content()
+  end
+
+  -- It has a tick to run: see `View.ticks`.
+  fn ticks() -> boolean
+    return true
+  end
+
+  fn tick(el: Element, dt: float) -> nil
+    local client = self.client
+    local now = Os.clock()
+    local shown = client.shownAt
+    if shown == nil then
+      local waited = now - client.openedAt > WindowMotion.patience
+      if waited or Compositor.image(client.id) != nil then
+        client.shownAt = now
+        Repaint.request()
+      end
+      return
+    end
+    local coming = now - shown! < WindowMotion.appear
+    local gliding = self.tiled and now - client.glideAt < WindowMotion.glide
+    if coming or gliding or (client.leaving and client.snapshot == nil) then
+      Repaint.request()
+    end
+  end
+
+  -- Slowing into place: 0 to 1 for a share of the time gone, 0 to 1.
+  static fn eased(share: float) -> float
+    local left = 1.0 - Math.clamp(share, 0.0, 1.0)
+    return 1.0 - left * left * left
+  end
+
+  fn paint(el: Element, x: float, y: float) -> nil
+    local client = self.client
+    local w = el.size.width
+    local h = el.size.height
+    local now = Os.clock()
+    local sized = WindowMotion.sizes()
+
+    -- Where it is drawn: on its way to where the layout has it.
+    local moved = x != client.goalX or y != client.goalY or w != client.goalW or h != client.goalH
+    if moved then
+      local arranged = now - Workspace.arrangedAt < 0.3
+      if self.tiled and sized and arranged and client.drawnW > 0.0 then
+        client.fromX = client.drawnX
+        client.fromY = client.drawnY
+        client.fromW = client.drawnW
+        client.fromH = client.drawnH
+        client.glideAt = now
+      else
+        client.glideAt = -10.0
+      end
+      client.goalX = x
+      client.goalY = y
+      client.goalW = w
+      client.goalH = h
+    end
+    local dx = x
+    local dy = y
+    local dw = w
+    local dh = h
+    local on = WindowMotion.eased((now - client.glideAt) / WindowMotion.glide)
+    local gliding = self.tiled and on < 1.0
+    if gliding then
+      dx = client.fromX + (x - client.fromX) * on
+      dy = client.fromY + (y - client.fromY) * on
+      dw = client.fromW + (w - client.fromW) * on
+      dh = client.fromH + (h - client.fromH) * on
+    end
+    client.drawnX = dx
+    client.drawnY = dy
+    client.drawnW = dw
+    client.drawnH = dh
+    client.seenX = x - WindowMotion.originX
+    client.seenY = y - WindowMotion.originY
+    client.seenW = w
+    client.seenH = h
+
+    -- How much of it there is to see yet.
+    local t = 0.0
+    local shown = client.shownAt
+    if shown != nil then
+      t = WindowMotion.eased((now - shown!) / WindowMotion.appear)
+    end
+
+    -- Closed: this frame of it is the picture it goes as.
+    if client.leaving and client.snapshot == nil and t > 0.0 then
+      local kept = WindowMotion.pictured(el, x, y, w, h, true)
+      client.snapshot = kept
+      WindowMotion.show(kept, dx, dy, dw, dh, w, h, 1.0, 1.0)
+      return
+    end
+    if t <= 0.0 then
+      return
+    end
+    if t >= 1.0 then
+      if not gliding then
+        el.paintChildren(x, y)
+        return
+      end
+      Graphics.push()
+      Graphics.translate(dx, dy)
+      Graphics.scale(dw / w, dh / h)
+      Graphics.translate(-x, -y)
+      el.paintChildren(x, y)
+      Graphics.pop()
+      return
+    end
+    local size = 1.0
+    if sized then
+      size = WindowMotion.small + (1.0 - WindowMotion.small) * t
+    end
+    local image = WindowMotion.pictured(el, x, y, w, h, false)
+    WindowMotion.show(image, dx, dy, dw, dh, w, h, t, size)
+  end
+
+  -- The window drawn into an image, `margin` in from its edges: one kept
+  -- with the window for the frames of a motion, or one of its own
+  -- (`fresh`) for a picture that outlives the window.
+  static fn pictured(
+    el: Element,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    fresh: boolean
+  ) -> Canvas
+    -- In the screen's own pixels, as `Transition` has it.
+    local density = Display.scale()
+    local m = WindowMotion.margin
+    local pw = Math.ceil((w + 2.0 * m) * density)
+    local ph = Math.ceil((h + 2.0 * m) * density)
+    local image: Canvas? = nil
+    if fresh then
+      image = Graphics.newCanvas(pw, ph)
+    else
+      image = Transition.canvasFor(el, pw, ph, "motion")
+    end
+    local target: Canvas? = Graphics.getCanvas()
+    local sx, sy, sw, sh = Graphics.getScissor()
+    Graphics.setCanvas(image!)
+    Graphics.push()
+    Graphics.origin()
+    Graphics.setScissor(0.0, 0.0, pw as float, ph as float)
+    Graphics.clear(0.0, 0.0, 0.0, 0.0)
+    Graphics.scale(density, density)
+    Graphics.translate(m - x, m - y)
+    el.paintChildren(x, y)
+    Graphics.pop()
+    if target != nil then
+      Graphics.setCanvas(target!)
+    else
+      Graphics.setCanvas()
+    end
+    Graphics.setScissor(sx, sy, sw, sh)
+    return image!
+  end
+
+  -- A window's picture (see `pictured`) over the rectangle at (`x`, `y`),
+  -- `w` by `h`, of a window whose own size is `ownW` by `ownH`: `alpha`
+  -- of it, at `size` of that about its middle.
+  static fn show(
+    image: Canvas,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    ownW: float,
+    ownH: float,
+    alpha: float,
+    size: float
+  ) -> nil
+    local density = Display.scale()
+    local m = WindowMotion.margin
+    Graphics.setBlendMode("premultiplied")
+    Graphics.setColor(1.0, 1.0, 1.0, alpha)
+    if size == 1.0 and density == 1.0 and w == ownW and h == ownH then
+      -- As it is, on the screen's pixels: a plain copy.
+      Graphics.draw(image, Math.floor(x - m + 0.5) as float, Math.floor(y - m + 0.5) as float)
+    else
+      Graphics.draw(
+        image,
+        x + w / 2.0,
+        y + h / 2.0,
+        0.0,
+        w / ownW * size / density,
+        h / ownH * size / density,
+        (m + ownW / 2.0) * density,
+        (m + ownH / 2.0) * density
+      )
+    end
+    Graphics.setColor(1.0, 1.0, 1.0, 1.0)
+    Graphics.setBlendMode("alpha")
+  end
+end

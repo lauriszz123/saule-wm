@@ -28,6 +28,10 @@ export class Launcher
   -- how a window is known for its app's.
   static local started: table<integer, Program> = {}
 
+  -- The apps that ended by themselves with an error, or were ended by
+  -- the system, since `takeFailed` last asked: their names.
+  static local failed: table<string> = {}
+
   -- The program the process `pid` was started as, if it was started here.
   static fn programOf(pid: integer) -> Program?
     return Launcher.started[pid]
@@ -126,10 +130,26 @@ export class Launcher
       Io.stderr.write(out .. err)
 
       if out == "" and err == "" and not process.running() then
-        Launcher.log.debug("app ended", {pid: process.pid()})
+        -- Ended already, so this does not wait. Not 0: it gave up with
+        -- an error, or (-1) the system ended it.
+        local code = process.wait()
+        local program = Launcher.started[process.pid()]
+        if code != 0 and program != nil then
+          Launcher.log.warn("app failed", {name: program!.name, pid: process.pid(), code: code})
+          Table.insert(Launcher.failed, program!.name)
+        else
+          Launcher.log.debug("app ended", {pid: process.pid()})
+        end
         Table.remove(Launcher.running, i)
       end
     end
+  end
+
+  -- The apps that failed since this was last asked.
+  static fn takeFailed() -> table<string>
+    local names = Launcher.failed
+    Launcher.failed = {}
+    return names
   end
 
   static fn text(data: bytes) -> string
