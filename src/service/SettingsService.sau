@@ -25,8 +25,16 @@ export class SettingsService implements WmSettings
 
   session: Session
 
+  -- Whether the windows were floating when Settings last asked for the
+  -- options. Settings keeps what it was given and sends all of it back with
+  -- every change, and the arrangement can be switched meanwhile from the
+  -- keyboard or the menu: sent back unchanged, it is what Settings was
+  -- told and not what anybody chose, and the arrangement stays.
+  local toldWindowed: boolean
+
   fn init(session: Session)
     self.session = session
+    self.toldWindowed = session.windowed
   end
 
   -- Serve it, for as long as the window manager runs. Another window
@@ -45,7 +53,7 @@ export class SettingsService implements WmSettings
       -- other: saved, so it is there after a restart.
       if session.lookChanged then
         session.lookChanged = false
-        Preferences.saveSoon(service.options())
+        Preferences.saveSoon(service.current())
       end
       Preferences.frame()
       Storage.collect()
@@ -66,7 +74,16 @@ export class SettingsService implements WmSettings
     end
   end
 
+  -- What Settings is told. What it is told of the arrangement is kept:
+  -- see `toldWindowed`.
   fn options() -> WmOptions
+    local options = self.current()
+    self.toldWindowed = options.windowed
+    return options
+  end
+
+  -- The options as they stand, for whoever asks here (to save them).
+  fn current() -> WmOptions
     local options = WmOptions()
     options.gap = Palette.gap
     options.grab = Palette.grab
@@ -112,7 +129,7 @@ export class SettingsService implements WmSettings
 
   fn apply(options: WmOptions)
     self.use(options)
-    Preferences.saveSoon(self.options())
+    Preferences.saveSoon(self.current())
     SettingsService.log.info(
       "settings applied",
       {
@@ -168,7 +185,9 @@ export class SettingsService implements WmSettings
       split = Split.Vertical
     end
     self.session.splitNext(split)
-    self.session.setWindowed(options.windowed)
+    if options.windowed != self.toldWindowed then
+      self.session.setWindowed(options.windowed)
+    end
     self.session.dock = options.dock
     self.session.setScale(options.scale)
     self.session.refresh()
