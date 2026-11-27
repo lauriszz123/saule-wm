@@ -5,8 +5,8 @@ export class Program
   path: string
 
   -- What the launcher lists it as: the file's name without its folder or
-  -- extension, first letter in capitals — "/bin/apps/terminal" is
-  -- "Terminal".
+  -- extension, each word's first letter in capitals — "/bin/apps/terminal"
+  -- is "Terminal", "/bin/apps/task-manager" is "Task Manager".
   name: string
 
   fn init(path: string)
@@ -28,6 +28,20 @@ export class Program
       end
     end
 
-    return String.upper(String.sub(stem, 1, 1)) .. String.sub(stem, 2)
+    -- A name of several words is written with hyphens between them:
+    -- "task-manager" is "Task Manager".
+    local words: table<string> = {}
+    for word in String.split(stem, "-") do
+      if word != "" then
+        Table.insert(
+          words,
+          String.upper(String.sub(word, 1, 1)) .. String.sub(word, 2)
+        )
+      end
+    end
+    if #words == 0 then
+      return stem
+    end
+    return String.join(" ", words)
   end
 end

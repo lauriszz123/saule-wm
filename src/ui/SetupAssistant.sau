@@ -143,7 +143,7 @@ export class SetupAssistant extends View
   static fn welcome() -> table<View>
     return SetupAssistant.head(
       "Welcome to Saule Linux",
-      "A name for this computer, where it is, and how it looks: three things to choose, and it is ready."
+      "Set up this computer in a few steps: choose a name, a time zone and an appearance."
     )
   end
 
@@ -162,15 +162,15 @@ export class SetupAssistant extends View
 
     local note = " "
     if kept == "" and String.trim(setup.name) != "" then
-      note = "A name needs a letter or a digit in it."
+      note = "The name must contain a letter or a digit."
     elseif kept != String.trim(setup.name) and kept != "" then
-      note = "It will be known as " .. kept .. "."
+      note = "The computer will be named " .. kept .. "."
     end
     local noted = Text(note).font(11.0).foregroundStyle(Palette.dimText)
 
     local page = SetupAssistant.head(
-      "Name this computer",
-      "It is how the computer is known to others. Letters, digits and hyphens."
+      "Name This Computer",
+      "The name identifies this computer on the network. It can contain letters, digits and hyphens."
     )
     Table.insert(page, field)
     Table.insert(page, noted.centered())
@@ -215,7 +215,7 @@ export class SetupAssistant extends View
       )
     end
     if #rows == 0 then
-      local none = Text("No city by that name. Try the largest one nearby.")
+      local none = Text("No matching city. Try the nearest major city.")
       Table.insert(
         rows,
         none.font(12.0).foregroundStyle(Palette.dimText).centered()
@@ -225,12 +225,12 @@ export class SetupAssistant extends View
     local list = VStack(alignment: fill, spacing: 2.0, children: rows)
 
     local chosen = Zones.find(setup.zone)
-    local time = "It is " .. Clock.time() .. " in " .. chosen.city .. "."
+    local time = "The time in " .. chosen.city .. " is " .. Clock.time() .. "."
     local told = Text(time).font(12.0).foregroundStyle(Palette.text)
 
     local page = SetupAssistant.head(
-      "Where is this computer?",
-      "The clock goes by the time zone. A zone is named after its largest city."
+      "Select Your Time Zone",
+      "Choose the nearest city to set the correct time."
     )
     Table.insert(page, field)
     Table.insert(page, list.frame(height: 150.0))
@@ -284,8 +284,8 @@ export class SetupAssistant extends View
     local accents = HStack(alignment: center, spacing: 8.0, children: dots)
 
     local page = SetupAssistant.head(
-      "Make it yours",
-      "A colour for what is lit, and a picture behind everything. Settings has more of both."
+      "Choose Your Look",
+      "Select an accent colour and a wallpaper. Both can be changed later in Settings."
     )
     Table.insert(page, accents)
     Table.insert(page, Spacer().frame(height: 6.0))
@@ -315,10 +315,9 @@ export class SetupAssistant extends View
 
   static fn done(session: Session) -> table<View>
     local name = Machine.name()
-    local zone = Zones.find(session.setup.zone)
     return SetupAssistant.head(
-      name .. " is ready",
-      "It is " .. Clock.time() .. " in " .. zone.city .. ". Super + Space opens the launcher, and the sun in the corner has the rest."
+      name .. " Is Ready",
+      "Press Super + Space to open the launcher. The system menu is in the top-left corner."
     )
   end
 

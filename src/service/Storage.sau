@@ -130,7 +130,7 @@ export class Storage
       end
     end
     if Keymap.host == "saule" then
-      return "None: the system runs from memory"
+      return "None (running from memory)"
     end
     return ""
   end

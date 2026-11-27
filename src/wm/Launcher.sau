@@ -314,10 +314,11 @@ export class Launcher
       Launcher.log.error("could not start", {path: program.path, reason: more})
       Table.insert(Launcher.failed, program.name)
     elseif stands == "ended" then
-      -- Not 0: it gave up with an error, or (-1) the system ended it.
-      -- One ended here on purpose (Force Quit) is no failure.
+      -- Not 0: it gave up with an error, or (below 0, the signal's
+      -- number) something ended it. One ended on purpose, here (Force
+      -- Quit) or by a person from Task Manager, is no failure.
       local code = (more as integer?) ?? 0
-      if code != 0 and not Launcher.ended[id] then
+      if code != 0 and not Launcher.ended[id] and not Launcher.asked(code) then
         Launcher.log.warn("app failed", {name: program.name, pid: pid, code: code})
         Table.insert(Launcher.failed, program.name)
       else
@@ -360,7 +361,7 @@ export class Launcher
         -- an error, or (-1) the system ended it.
         local code = process.wait()
         local program = Launcher.started[process.pid()]
-        if code != 0 and program != nil then
+        if code != 0 and program != nil and not Launcher.asked(code) then
           Launcher.log.warn("app failed", {name: program!.name, pid: process.pid(), code: code})
           Table.insert(Launcher.failed, program!.name)
         else
@@ -403,6 +404,19 @@ export class Launcher
       end
     end
     return false
+  end
+
+  -- Whether an app that ended with `code` was asked to: ended by one
+  -- of the signals a person sends (to hang up, interrupt, kill or
+  -- terminate), as init says it (the signal's number, below 0) or as a
+  -- shell does (128 more than it). A crash is a signal too, and is
+  -- none of these.
+  static fn asked(code: integer) -> boolean
+    local signal = -code
+    if code > 128 then
+      signal = code - 128
+    end
+    return signal == 1 or signal == 2 or signal == 9 or signal == 15
   end
 
   -- The programs in `SAULE_APPS`, or else `Launcher.folder`; none when

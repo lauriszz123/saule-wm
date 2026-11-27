@@ -157,9 +157,9 @@ export class StatusPanel extends View
 
   -- The battery: how full, and whether it is filling.
   static fn battery() -> table<View>
-    local how = "On battery"
+    local how = "On battery power"
     if System.charging and System.charge >= 100 then
-      how = "Full, and plugged in"
+      how = "Fully charged"
     elseif System.charging then
       how = "Charging"
     end
@@ -202,11 +202,11 @@ export class StatusPanel extends View
       if #rows > 0 then
         Table.insert(rows, SystemMenu.separator())
       end
-      local how = "Not plugged in"
+      local how = "Not connected"
       if System.wiredAddress != "" then
         how = "Connected · " .. System.wiredAddress
       elseif System.cable then
-        how = "Plugged in, no address yet"
+        how = "Obtaining IP address…"
       end
       local cable = HStack(alignment: StackAlignment.Center, spacing: 8.0) do
         show(StatusPanel.title("Ethernet"))
@@ -226,11 +226,11 @@ export class StatusPanel extends View
     if System.wifi == "joining" then
       said = "Joining " .. System.wifiName .. "…"
     elseif System.wifi == "failed" then
-      said = "Could not join " .. System.wifiName .. ". Is the password right?"
+      said = "Could not join " .. System.wifiName .. ". Check the password and try again."
     elseif System.wifi == "joined" and System.wifiAddress == "" then
-      said = "Joined " .. System.wifiName .. ", no address yet"
+      said = "Connected to " .. System.wifiName .. ". Obtaining IP address…"
     elseif #System.seen == 0 then
-      said = "Looking for networks…"
+      said = "Searching for networks…"
     end
     if said != "" then
       Table.insert(rows, StatusPanel.note(said).lineLimit(2))

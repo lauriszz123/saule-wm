@@ -108,7 +108,7 @@ export class Desktop extends View
         if label == "" then
           label = "USB Drive"
         end
-        self.session.notify("Drive connected", label .. " is in Files, under Locations.")
+        self.session.notify("Drive Connected", label .. " is available in Files.")
       end
     end
     bag.drives = now
@@ -118,9 +118,9 @@ export class Desktop extends View
     local reports = bag.reports as integer?
     if reports != nil and System.reports > reports! then
       if System.reportName == "none" then
-        self.session.notify("No drive for the report", "Plug in a USB drive and ask again.")
+        self.session.notify("No USB Drive Found", "Connect a USB drive to save the system report.")
       else
-        self.session.notify("Report saved", System.reportName .. " is on the USB drive.")
+        self.session.notify("System Report Saved", System.reportName .. " was saved to the USB drive.")
       end
     end
     bag.reports = System.reports

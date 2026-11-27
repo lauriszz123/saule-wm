@@ -135,11 +135,11 @@ export class LockScreen extends View
 
     local said = " "
     if session.checking then
-      said = "Checking…"
+      said = "Verifying…"
     elseif session.wrong then
-      said = "That isn't the password. Try again."
+      said = "Incorrect password. Try again."
     elseif #Layouts.chosen > 1 then
-      said = "Typing in " .. Layouts.name(Layouts.code())
+      said = "Keyboard layout: " .. Layouts.name(Layouts.code())
     end
     local note = Text(said).font(12.0).foregroundStyle(Palette.dimText)
 

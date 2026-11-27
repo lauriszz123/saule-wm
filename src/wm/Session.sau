@@ -412,9 +412,9 @@ export class Session
     self.setWindowed(not self.windowed)
     self.lookChanged = true
     if self.windowed then
-      self.notify("Windowed", "Windows can be dragged and overlap.")
+      self.notify("Windowed Mode", "Windows can be moved, resized and overlapped.")
     else
-      self.notify("Tiled", "Windows share the screen.")
+      self.notify("Tiled Mode", "Windows are arranged to fill the screen.")
     end
   end
 
@@ -756,7 +756,7 @@ export class Session
       "windows=" .. tostring(#self.clients),
     }
     if not System.there then
-      self.notify("No report", "Reports are written by Saule Linux.")
+      self.notify("System Report Unavailable", "System reports can only be saved on Saule Linux.")
       return
     end
     System.saveReport(String.join("; ", notes))
@@ -779,10 +779,10 @@ export class Session
     try
       Graphics.captureScreenshot(folder .. "/" .. name)
       Session.log.info("screenshot", {file: name})
-      self.notify("Screenshot saved", name .. " is in Pictures.")
+      self.notify("Screenshot Saved", name .. " was saved to Pictures.")
     catch e: string
       Session.log.warn("no screenshot", {reason: e})
-      self.notify("No screenshot", "The picture could not be saved.")
+      self.notify("Screenshot Failed", "The screenshot could not be saved.")
     end
   end
 
@@ -1327,8 +1327,8 @@ export class Session
     Launcher.pump()
     for name in Launcher.takeFailed() do
       self.notify(
-        name .. " quit unexpectedly",
-        "With a USB drive plugged in, " .. Session.keysSaid(Keymap.report) .. " saves a report for finding out why."
+        name .. " Quit Unexpectedly",
+        "Press " .. Session.keysSaid(Keymap.report) .. " to save a system report to a USB drive."
       )
     end
     self.tellScale()

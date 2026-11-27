@@ -99,7 +99,7 @@ export class StatusBar extends View
     local label = Text("Resize").font(12.0).foregroundStyle(Palette.text)
     local inset = EdgeInsets.symmetric(horizontal: 7.0, vertical: 1.0)
     local pill = label.padding(insets: inset)
-    local hint = Text("arrows to resize, Esc when done")
+    local hint = Text("Use the arrow keys to resize. Press Esc when done.")
     return HStack(spacing: 6.0) do
       pill.background(Palette.resizeMode, 5.0)
       hint.font(12.0).foregroundStyle(Palette.dimText)

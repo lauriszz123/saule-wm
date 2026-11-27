@@ -14,24 +14,24 @@ from KeyAction import KeyAction
 export class KeyActions
   -- The system's: in the order Settings lists them.
   static system: KeyAction[] = {
-    KeyAction("launcher", "Open the launcher"),
-    KeyAction("lock", "Lock the screen"),
-    KeyAction("forceQuit", "Force quit the window's app"),
-    KeyAction("layout", "Switch the keyboard layout"),
-    KeyAction("screenshot", "Take a picture of the screen"),
-    KeyAction("report", "Save a report of the computer to a USB drive"),
-    KeyAction("quit", "Quit the window manager"),
+    KeyAction("launcher", "Open launcher"),
+    KeyAction("lock", "Lock screen"),
+    KeyAction("forceQuit", "Force quit app"),
+    KeyAction("layout", "Switch keyboard layout"),
+    KeyAction("screenshot", "Take screenshot"),
+    KeyAction("report", "Save system report to USB drive"),
+    KeyAction("quit", "Quit window manager"),
   }
 
   -- The focused window's.
   static windows: KeyAction[] = {
-    KeyAction("close", "Close the window"),
-    KeyAction("float", "Float or tile the window"),
-    KeyAction("minimise", "Minimise the window"),
+    KeyAction("close", "Close window"),
+    KeyAction("float", "Float or tile window"),
+    KeyAction("minimise", "Minimise window"),
     KeyAction("windowed", "Switch between tiled and windowed"),
-    KeyAction("resize", "Resize the window"),
-    KeyAction("beside", "Open the next window beside"),
-    KeyAction("below", "Open the next window below"),
+    KeyAction("resize", "Resize window"),
+    KeyAction("beside", "Open next window beside"),
+    KeyAction("below", "Open next window below"),
   }
 
   -- The keys that are held with others, in the order a shortcut lists

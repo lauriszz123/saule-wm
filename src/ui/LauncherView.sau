@@ -147,7 +147,7 @@ export class LauncherView extends View
     local count = #matches
 
     if count == 0 then
-      local said = "No apps match “" .. typed .. "”"
+      local said = "No results for “" .. typed .. "”"
       local none = Text(said).font(15.0).foregroundStyle(Palette.dimText)
       Table.insert(rows, none.padding(insets: EdgeInsets.all(12.0)))
     end

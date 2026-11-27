@@ -26,6 +26,11 @@ export class AppIcon extends View
       case "editor" then Color(0.93, 0.93, 0.95)
       case "settings" then Color(0.48, 0.50, 0.56)
       case "about" then Color(0.48, 0.50, 0.56)
+      case "task manager" then Color(0.13, 0.14, 0.17)
+      case "preview" then Color(0.18, 0.66, 0.68)
+      case "clock" then Color(0.11, 0.11, 0.13)
+      case "calculator" then Color(0.98, 0.58, 0.12)
+      case "calendar" then Color(0.95, 0.95, 0.97)
       case "gamemaker" then Color(0.86, 0.34, 0.30)
       case _ then AppIcon.tint(name)
     end
@@ -63,6 +68,11 @@ export class AppIcon extends View
       case "editor" then AppIcon.editor(left, top, s)
       case "settings" then AppIcon.settings(left, top, s)
       case "about" then AppIcon.about(left, top, s)
+      case "task manager" then AppIcon.taskManager(left, top, s)
+      case "preview" then AppIcon.preview(left, top, s)
+      case "clock" then AppIcon.clock(left, top, s)
+      case "calculator" then AppIcon.calculator(left, top, s)
+      case "calendar" then AppIcon.calendar(left, top, s)
       case _ then AppIcon.letter(self.name, left, top, s)
     end
   end
@@ -120,6 +130,107 @@ export class AppIcon extends View
     local w = s * 0.12
     Graphics.circle("fill", x + s * 0.5, y + s * 0.28, w * 0.7)
     Graphics.rectangle("fill", x + s * 0.5 - w / 2.0, y + s * 0.42, w, s * 0.34, w / 2.0)
+  end
+
+  -- A graph of something busy: bars of different heights, in green.
+  static fn taskManager(x: float, y: float, s: float) -> nil
+    Graphics.setColor(0.30, 0.85, 0.50)
+    local heights: table<float> = {0.22, 0.38, 0.28, 0.52, 0.34}
+    local bar = s * 0.09
+    local gap = s * 0.035
+    local left = x + (s - (bar * 5.0 + gap * 4.0)) / 2.0
+    local floor = y + s * 0.74
+    for i = 1, 5 do
+      local tall = s * heights[i]
+      Graphics.rectangle(
+        "fill",
+        left + ((i - 1) as float) * (bar + gap),
+        floor - tall,
+        bar,
+        tall,
+        bar * 0.3
+      )
+    end
+  end
+
+  -- A picture: two hills and a sun over them.
+  static fn preview(x: float, y: float, s: float) -> nil
+    Graphics.circle("fill", x + s * 0.68, y + s * 0.32, s * 0.08)
+    local near: table<float> = {
+      x + s * 0.16,
+      y + s * 0.74,
+      x + s * 0.40,
+      y + s * 0.38,
+      x + s * 0.62,
+      y + s * 0.74,
+    }
+    local far: table<float> = {
+      x + s * 0.46,
+      y + s * 0.74,
+      x + s * 0.66,
+      y + s * 0.50,
+      x + s * 0.84,
+      y + s * 0.74,
+    }
+    Graphics.polygon("fill", near)
+    Graphics.polygon("fill", far)
+  end
+
+  -- A clock's face at ten past ten, its second hand in orange.
+  static fn clock(x: float, y: float, s: float) -> nil
+    local cx = x + s * 0.5
+    local cy = y + s * 0.5
+    Graphics.circle("fill", cx, cy, s * 0.36)
+    Graphics.setColor(0.11, 0.11, 0.13)
+    Graphics.setLineWidth(Math.max(s * 0.06, 1.4))
+    Graphics.line(cx, cy, cx - s * 0.14, cy - s * 0.10)
+    Graphics.line(cx, cy, cx + s * 0.12, cy - s * 0.20)
+    Graphics.setColor(0.98, 0.58, 0.12)
+    Graphics.setLineWidth(Math.max(s * 0.03, 1.0))
+    Graphics.line(cx, cy, cx + s * 0.06, cy + s * 0.24)
+    Graphics.circle("fill", cx, cy, s * 0.035)
+    Graphics.setLineWidth(1.0)
+  end
+
+  -- Four keys: plus, minus, times, equals.
+  static fn calculator(x: float, y: float, s: float) -> nil
+    local w = Math.max(s * 0.06, 1.4)
+    local arm = s * 0.10
+    Graphics.setLineWidth(w)
+    -- Plus, at the top left.
+    local ax = x + s * 0.33
+    local ay = y + s * 0.33
+    Graphics.line(ax - arm, ay, ax + arm, ay)
+    Graphics.line(ax, ay - arm, ax, ay + arm)
+    -- Minus, at the top right.
+    local bx = x + s * 0.67
+    Graphics.line(bx - arm, ay, bx + arm, ay)
+    -- Times, at the bottom left.
+    local cy = y + s * 0.67
+    local d = arm * 0.75
+    Graphics.line(ax - d, cy - d, ax + d, cy + d)
+    Graphics.line(ax - d, cy + d, ax + d, cy - d)
+    -- Equals, at the bottom right.
+    Graphics.line(bx - arm, cy - s * 0.045, bx + arm, cy - s * 0.045)
+    Graphics.line(bx - arm, cy + s * 0.045, bx + arm, cy + s * 0.045)
+    Graphics.setLineWidth(1.0)
+  end
+
+  -- A page of a calendar: a red band, and the days under it as dots.
+  static fn calendar(x: float, y: float, s: float) -> nil
+    Graphics.setColor(0.94, 0.30, 0.26)
+    Graphics.rectangle("fill", x + s * 0.18, y + s * 0.20, s * 0.64, s * 0.13, s * 0.04)
+    Graphics.setColor(0.30, 0.32, 0.38)
+    for row = 0, 2 do
+      for column = 0, 3 do
+        Graphics.circle(
+          "fill",
+          x + s * (0.245 + 0.17 * (column as float)),
+          y + s * (0.46 + 0.14 * (row as float)),
+          s * 0.042
+        )
+      end
+    end
   end
 
   -- The app's first letter, in the middle.
