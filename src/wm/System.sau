@@ -18,6 +18,7 @@
 -- on the bar with files written by hand.
 
 from Machine import Machine
+from Launcher import Launcher
 
 -- A Wi-Fi network in range.
 export class SeenNetwork
@@ -86,6 +87,16 @@ export class System
   -- How often the battery is, which changes by the minute.
   static batteryEvery: float = 10.0
   static local batteryAt: float = -100.0
+
+  -- How often the adapter is: it is plugged in and pulled out by hand,
+  -- and the bar says so within the second. One short file for each.
+  static adapterEvery: float = 1.0
+  static local adapterAt: float = -100.0
+  static local adapters: table<string> = {}
+
+  -- How many apps there are to open. On a system started from a stick
+  -- they leave with the stick and are back when it is.
+  static apps: integer = 0
 
   -- Whether there is anything to ask at all: the folder is there.
   static there: boolean = false
@@ -227,8 +238,13 @@ export class System
       System.batteryAt = clock
       System.takeBattery()
     end
+    if clock - System.adapterAt >= System.adapterEvery then
+      System.adapterAt = clock
+      System.takeAdapter()
+      System.apps = #Launcher.installed()
+    end
 
-    local now = power .. sound .. network .. display .. login .. bluetooth .. clockFile .. disks .. update .. tostring(
+    local now = tostring(System.apps) .. power .. sound .. network .. display .. login .. bluetooth .. clockFile .. disks .. update .. tostring(
       System.charge
     ) .. tostring(System.charging) .. tostring(System.battery)
     if now == System.shown then
@@ -419,9 +435,13 @@ export class System
     if not Os.exists(supplies) then
       return
     end
+    System.adapters = {}
     for name in Os.list(supplies) do
       local supply = supplies .. "/" .. name
-      if not System.battery and String.trim(System.read(supply .. "/type")) == "Battery" then
+      local kind = String.trim(System.read(supply .. "/type"))
+      if kind == "Mains" then
+        Table.insert(System.adapters, supply .. "/online")
+      elseif not System.battery and kind == "Battery" then
         local full = String.trim(System.read(supply .. "/capacity"))
         if full != "" then
           System.battery = true
@@ -430,6 +450,28 @@ export class System
           System.charging = status == "Charging" or status == "Full"
         end
       end
+    end
+    System.takeAdapter()
+  end
+
+  -- Whether the computer is plugged in, as its adapters say ("1" in, "0"
+  -- out), when it has any. They say so at once, where a battery goes on
+  -- saying what it was doing for seconds after; and they are asked every
+  -- second, where the battery is every ten: the bar showed the plug going
+  -- in up to ten seconds late.
+  static local fn takeAdapter() -> nil
+    if not System.battery then
+      return
+    end
+    local said = false
+    local plugged = false
+    for file in System.adapters do
+      local online = String.trim(System.read(file))
+      said = said or online != ""
+      plugged = plugged or online == "1"
+    end
+    if said then
+      System.charging = plugged
     end
   end
 

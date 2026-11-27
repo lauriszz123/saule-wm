@@ -144,7 +144,7 @@ export class Desktop extends View
     local screen = VStack(alignment: StackAlignment.Fill) do
       StatusBar(session)
       Desktop.windows(session).padding(Palette.gap).expanded()
-      if session.dock then
+      if session.dock and Dock.shown(session) then
         Dock(session).frame(height: Dock.height)
       end
     end

@@ -28,6 +28,23 @@ export class Dock extends View
     self.session = session
   end
 
+  -- Whether there is anything to stand in it: an app to open, or a
+  -- window that was minimised. With neither it is not drawn at all, and
+  -- the windows have its strip: the apps of a system started from a
+  -- stick leave when the stick does, and an empty Dock is a box about
+  -- nothing.
+  static fn shown(session: Session) -> boolean
+    if #session.minimised() > 0 then
+      return true
+    end
+    for program in session.programs() do
+      if String.lower(program.name) != "about" then
+        return true
+      end
+    end
+    return false
+  end
+
   fn body(context: BuildContext) -> View
     local session = self.session
     local items: table<View> = {}
